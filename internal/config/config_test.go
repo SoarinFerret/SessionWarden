@@ -36,9 +36,35 @@ func TestTimeRangeUnmarshalTOML(t *testing.T) {
 	}
 }
 
+func TestDurationUnmarshalTOML(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		expected    time.Duration
+		expectError bool
+	}{
+		{"Valid duration", "2h", 2 * time.Hour, false},
+		{"Invalid duration", "invalid", 0, true},
+		{"Empty string", "", 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var d Duration
+			err := d.UnmarshalText([]byte(tt.input))
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, Duration(tt.expected), d)
+			}
+		})
+	}
+}
+
 func TestSetDefault(t *testing.T) {
 	defaultConfig := UserConfig{
-		DailyLimit: "2h",
+		DailyLimit: Duration(2 * time.Hour),
 		AllowedHours: TimeRange{
 			Start: time.Date(0, 1, 1, 9, 0, 0, 0, time.UTC),
 			End:   time.Date(0, 1, 1, 17, 0, 0, 0, time.UTC),
@@ -47,7 +73,7 @@ func TestSetDefault(t *testing.T) {
 			Start: time.Date(0, 1, 1, 10, 0, 0, 0, time.UTC),
 			End:   time.Date(0, 1, 1, 14, 0, 0, 0, time.UTC),
 		},
-		NotifyBefore: []string{"10m", "5m"},
+		NotifyBefore: []Duration{Duration(10 * time.Minute), Duration(5 * time.Minute)},
 		LockScreen:   nil,
 		Enabled:      nil,
 	}
@@ -56,19 +82,19 @@ func TestSetDefault(t *testing.T) {
 		Default: defaultConfig,
 		Users: map[string]UserConfig{
 			"user1": {
-				DailyLimit: "",
+				DailyLimit: 0,
 			},
 			"user2": {
-				NotifyBefore: []string{"15m"},
+				NotifyBefore: []Duration{Duration(15 * time.Minute)},
 			},
 		},
 	}
 
 	config.SetDefault()
 
-	assert.Equal(t, "2h", config.Users["user1"].DailyLimit)
+	assert.Equal(t, Duration(2*time.Hour), config.Users["user1"].DailyLimit)
 	assert.Equal(t, defaultConfig.AllowedHours, config.Users["user1"].AllowedHours)
-	assert.Equal(t, []string{"15m"}, config.Users["user2"].NotifyBefore)
+	assert.Equal(t, []Duration{Duration(15 * time.Minute)}, config.Users["user2"].NotifyBefore)
 	assert.Equal(t, defaultConfig.AllowedHours, config.Users["user2"].AllowedHours)
 }
 
@@ -90,13 +116,13 @@ daily_limit = "3h"
 	err := LoadConfigFromBytes([]byte(tomlData))
 	assert.NoError(t, err)
 
-	assert.Equal(t, "2h", AppConfig.Default.DailyLimit)
+	assert.Equal(t, Duration(2*time.Hour), AppConfig.Default.DailyLimit)
 	assert.Equal(t, "09:00", AppConfig.Default.AllowedHours.Start.Format("15:04"))
 	assert.Equal(t, "17:00", AppConfig.Default.AllowedHours.End.Format("15:04"))
 	assert.Equal(t, true, *AppConfig.Default.LockScreen)
 	assert.Equal(t, true, *AppConfig.Default.Enabled)
 
-	assert.Equal(t, "3h", AppConfig.Users["user1"].DailyLimit)
+	assert.Equal(t, Duration(3*time.Hour), AppConfig.Users["user1"].DailyLimit)
 	assert.Equal(t, "09:00", AppConfig.Users["user1"].AllowedHours.Start.Format("15:04"))
 	assert.Equal(t, "17:00", AppConfig.Users["user1"].AllowedHours.End.Format("15:04"))
 }
@@ -126,13 +152,13 @@ daily_limit = "3h"
 	err = LoadConfigFromFile(tempFile.Name())
 	assert.NoError(t, err)
 
-	assert.Equal(t, "2h", AppConfig.Default.DailyLimit)
+	assert.Equal(t, Duration(2*time.Hour), AppConfig.Default.DailyLimit)
 	assert.Equal(t, "09:00", AppConfig.Default.AllowedHours.Start.Format("15:04"))
 	assert.Equal(t, "17:00", AppConfig.Default.AllowedHours.End.Format("15:04"))
 	assert.Equal(t, true, *AppConfig.Default.LockScreen)
 	assert.Equal(t, true, *AppConfig.Default.Enabled)
 
-	assert.Equal(t, "3h", AppConfig.Users["user1"].DailyLimit)
+	assert.Equal(t, Duration(3*time.Hour), AppConfig.Users["user1"].DailyLimit)
 	assert.Equal(t, "09:00", AppConfig.Users["user1"].AllowedHours.Start.Format("15:04"))
 	assert.Equal(t, "17:00", AppConfig.Users["user1"].AllowedHours.End.Format("15:04"))
 }

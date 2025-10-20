@@ -43,13 +43,24 @@ func (tr *TimeRange) UnmarshalText(text []byte) error {
 	return nil
 }
 
+type Duration time.Duration
+
+func (d *Duration) UnmarshalText(text []byte) error {
+	x, err := time.ParseDuration(string(text))
+	if err != nil {
+		return err
+	}
+	*d = Duration(x)
+	return nil
+}
+
 type UserConfig struct {
-	DailyLimit   string    `toml:"daily_limit"`
-	AllowedHours TimeRange `toml:"allowed_hours"`
-	WeekendHours TimeRange `toml:"weekend_hours"`
-	NotifyBefore []string  `toml:"notify_before"`
-	LockScreen   *bool     `toml:"lock_screen"`
-	Enabled      *bool     `toml:"enabled"`
+	DailyLimit   Duration   `toml:"daily_limit"`
+	AllowedHours TimeRange  `toml:"allowed_hours"`
+	WeekendHours TimeRange  `toml:"weekend_hours"`
+	NotifyBefore []Duration `toml:"notify_before"`
+	LockScreen   *bool      `toml:"lock_screen"`
+	Enabled      *bool      `toml:"enabled"`
 }
 
 type Config struct {
@@ -70,7 +81,7 @@ func (c *Config) SetDefault() {
 
 	if c.Users != nil {
 		for username, userConfig := range c.Users {
-			if userConfig.DailyLimit == "" {
+			if userConfig.DailyLimit == 0 {
 				userConfig.DailyLimit = c.Default.DailyLimit
 			}
 			if userConfig.AllowedHours == (TimeRange{}) {
