@@ -8,5 +8,6 @@ tidy:
 test:
     go test ./...
 
-run:
-    ./bin/sessionwardend
+run EXE:
+    go build -o bin/{{EXE}} ./cmd/{{EXE}}
+    ./bin/{{EXE}}

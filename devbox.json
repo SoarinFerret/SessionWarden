@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.10.7/.schema/devbox.schema.json",
-  "packages": ["go@1.24.4"],
+  "packages": ["go@1.24.4", "just"],
   "env": {
     "GOPATH": "$HOME/go/",
     "PATH": "$PATH:$HOME/go/bin"
