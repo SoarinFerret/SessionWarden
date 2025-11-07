@@ -1,2 +1,5 @@
 bin/
 .devbox/
+result/
+state.json
+nixos.qcow2
