@@ -1,0 +1,34 @@
+{
+  "users": {
+    "userA": {
+      "paused": false,
+      "sessions": [
+        {
+          "id": "/org/freedesktop/login1/session/_310",
+          "start": "2025-10-28T22:30:00Z",
+          "end": "2025-10-28T22:45:00Z",
+          "segments": [
+            {
+              "start": "2025-10-28T22:30:00Z",
+              "stop": "2025-10-28T22:35:00Z",
+              "reason": "sleep"
+            },
+            {
+              "start": "2025-10-28T22:36:00Z",
+              "stop": "2025-10-28T22:40:00Z",
+              "reason": "lockscreen"
+            },
+            {
+              "start": "2025-10-28T22:41:00Z",
+              "stop": "2025-10-28T22:45:00Z",
+              "reason": "logoff"
+            }
+          ]
+        },
+        { "start": "2025-10-28T22:46:00Z", "stop": "0" }
+      ],
+      "exceptions": [{ "extra_time": 1800, "added_by": "admin", "reason": "" }]
+    }
+  },
+  "version": 1
+}
