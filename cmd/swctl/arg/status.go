@@ -14,7 +14,7 @@ var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Check if SessionWarden is running and get session status",
 	Run: func(cmd *cobra.Command, args []string) {
-		conn, err := dbus.ConnectSessionBus()
+		conn, err := dbus.ConnectSystemBus()
 		if err != nil {
 			log.Fatal("Failed to connect to session bus:", err)
 		}
@@ -23,12 +23,12 @@ var statusCmd = &cobra.Command{
 		obj := conn.Object(ipc.ServiceName, dbus.ObjectPath(ipc.ObjectPath))
 
 		var result string
-		err = obj.Call(ipc.InterfaceName+".GetSessionStatus", 0).Store(&result)
+		err = obj.Call(ipc.InterfaceName+".GetStatus", 0).Store(&result)
 		if err != nil {
 			log.Fatal("Failed to call method:", err)
 		}
 
-		fmt.Println("Session Status:", result)
+		fmt.Println("SessionWarden Status:", result)
 	},
 }
 

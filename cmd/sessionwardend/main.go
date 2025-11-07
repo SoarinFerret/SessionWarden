@@ -1,41 +1,93 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 
+	"github.com/SoarinFerret/SessionWarden/internal/ipc"
+	"github.com/SoarinFerret/SessionWarden/internal/loginctl"
+	"github.com/SoarinFerret/SessionWarden/internal/state"
 	"github.com/godbus/dbus/v5"
 )
 
-const (
-	objectPath    = "/io/github/soarinferret/sessionwarden"
-	interfaceName = "io.github.soarinferret.sessionwarden.Manager"
-	serviceName   = "io.github.soarinferret.sessionwarden"
-)
+func main() {
+	// initialize the state manager
+	stateMgr, err := state.NewManager("state.json")
+	if err != nil {
+		log.Fatal("Failed to initialize state manager:", err)
+	}
 
-type SessionManager struct{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-func (s *SessionManager) GetSessionStatus() (string, *dbus.Error) {
-	return "Session is active", nil
+	// Graceful shutdown
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sig
+		cancel()
+	}()
+
+	var wg sync.WaitGroup
+
+	// Start the loginctl listener (system D-Bus)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		log.Println("Monitoring dbus for session changes...")
+		if err := loginctl.Watch(ctx, stateMgr); err != nil {
+			log.Println("logind watcher error:", err)
+		}
+	}()
+
+	// Start your own DBus service (sessionwarden)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		log.Println("Opening system D-Bus service...")
+		if err := serveSessionWarden(ctx, stateMgr, true); err != nil {
+			log.Println("sessionwarden service error:", err)
+		}
+	}()
+
+	wg.Wait()
+	fmt.Println("Shutdown complete")
+
 }
 
-func main() {
-	conn, err := dbus.ConnectSessionBus()
-	if err != nil {
-		log.Fatal("Failed to connect to session bus:", err)
+func serveSessionWarden(ctx context.Context, stateMgr *state.Manager, system bool) error {
+	conn := &dbus.Conn{}
+	if system {
+		var err error
+		conn, err = dbus.ConnectSystemBus()
+		if err != nil {
+			return fmt.Errorf("failed to connect to system bus: %w", err)
+		}
+	} else {
+		var err error
+		conn, err = dbus.ConnectSessionBus()
+		if err != nil {
+			return fmt.Errorf("failed to connect to system bus: %w", err)
+		}
 	}
 	defer conn.Close()
 
-	reply, err := conn.RequestName(serviceName, dbus.NameFlagDoNotQueue)
+	reply, err := conn.RequestName(ipc.ServiceName, dbus.NameFlagDoNotQueue)
 	if err != nil || reply != dbus.RequestNameReplyPrimaryOwner {
-		log.Fatal("Name already taken or failed to request:", err)
+		return fmt.Errorf("failed to request name: %w", err)
 	}
 
-	sm := &SessionManager{}
-	err = conn.Export(sm, dbus.ObjectPath(objectPath), interfaceName)
+	sm := &ipc.SessionManager{Manager: stateMgr}
+	err = conn.Export(sm, dbus.ObjectPath(ipc.ObjectPath), ipc.InterfaceName)
 	if err != nil {
-		log.Fatal("Failed to export object:", err)
+		return fmt.Errorf("failed to export interface: %w", err)
 	}
 
-	log.Println("Service running. Press Ctrl+C to exit.")
-	select {} // block forever
+	<-ctx.Done()
+	return nil
 }
