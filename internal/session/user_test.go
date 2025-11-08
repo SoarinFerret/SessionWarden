@@ -1,98 +1,137 @@
 package session
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
 
-func TestAddSession(t *testing.T) {
-	user := User{Username: "testuser"}
+func TestUser_AddSessionAndGetSessionByID(t *testing.T) {
+	u := &User{}
+	start := time.Now().Add(-1 * time.Hour)
+	sessionID := "abc123"
 
-	startTime := time.Now()
-	user.AddSession(startTime)
-
-	if len(user.Sessions) != 1 {
-		t.Errorf("expected 1 session, got %d", len(user.Sessions))
+	u.AddSession(start, sessionID)
+	if len(u.Sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(u.Sessions))
 	}
-
-	if !user.Sessions[0].start.Equal(startTime) {
-		t.Errorf("expected session start time to be %v, got %v", startTime, user.Sessions[0].start)
+	s, err := u.GetSessionByID(sessionID)
+	if err != nil {
+		t.Fatalf("GetSessionByID returned error: %v", err)
 	}
-
-	if !user.Sessions[0].stop.IsZero() {
-		t.Errorf("expected session stop time to be zero, got %v", user.Sessions[0].stop)
+	if s.SessionId != sessionID {
+		t.Errorf("SessionId = %v, want %v", s.SessionId, sessionID)
 	}
-}
-
-func TestSessionDuration(t *testing.T) {
-	startTime := time.Now().Add(-1 * time.Hour) // 1 hour ago
-	session := Session{start: startTime}
-
-	// Test ongoing session
-	duration := session.Duration()
-	expectedDuration := int64(3600) // 1 hour in seconds
-	if duration < expectedDuration || duration > expectedDuration+1 {
-		t.Errorf("expected duration to be around %d seconds, got %d", expectedDuration, duration)
-	}
-
-	// Test ended session
-	stopTime := startTime.Add(2 * time.Hour) // 2 hours after start
-	session.EndSession(stopTime)
-	duration = session.Duration()
-	expectedDuration = int64(7200) // 2 hours in seconds
-	if duration != expectedDuration {
-		t.Errorf("expected duration to be %d seconds, got %d", expectedDuration, duration)
+	if !s.StartTime.Equal(start) {
+		t.Errorf("StartTime = %v, want %v", s.StartTime, start)
 	}
 }
 
-func TestEndSession(t *testing.T) {
-	startTime := time.Now()
-	session := Session{start: startTime}
+func TestUser_EndSession(t *testing.T) {
+	u := &User{}
+	start := time.Now().Add(-2 * time.Hour)
+	sessionID := "endme"
+	u.AddSession(start, sessionID)
 
-	stopTime := startTime.Add(30 * time.Minute) // 30 minutes after start
-	session.EndSession(stopTime)
+	err := u.EndSession(time.Now(), sessionID)
+	if err != nil {
+		t.Errorf("EndSession returned error: %v", err)
+	}
+	s, _ := u.GetSessionByID(sessionID)
+	if s.IsActive() {
+		t.Errorf("Session should not be active after EndSession")
+	}
 
-	if !session.stop.Equal(stopTime) {
-		t.Errorf("expected stop time to be %v, got %v", stopTime, session.stop)
+	// Try to end again, should error
+	err = u.EndSession(time.Now(), sessionID)
+	if err == nil {
+		t.Errorf("Expected error when ending already ended session")
 	}
 }
 
-func TestEndSessionNow(t *testing.T) {
-	startTime := time.Now()
-	session := Session{start: startTime}
+func TestUser_EndAllSegmentsAndStartNewSegments(t *testing.T) {
+	u := &User{}
+	start := time.Now().Add(-1 * time.Hour)
+	sessionID := "segtest"
+	u.AddSession(start, sessionID)
 
-	session.EndSessionNow()
-
-	if session.stop.IsZero() {
-		t.Errorf("expected stop time to be set, got zero value")
+	u.EndAllSegments("forced")
+	for _, sess := range u.Sessions {
+		for _, seg := range sess.Segments {
+			if seg.EndTime.IsZero() {
+				t.Errorf("Segment EndTime should be set after EndAllSegments")
+			}
+		}
 	}
 
-	if session.stop.Before(startTime) {
-		t.Errorf("expected stop time to be after start time, got %v", session.stop)
+	u.StartNewSegments()
+	for _, sess := range u.Sessions {
+		fmt.Println(sess.IsIdle())
+		if sess.IsActive() && sess.IsIdle() {
+			t.Errorf("Expected new segment to be started for idle session")
+		}
 	}
 }
 
-func TestTotalSessionDuration(t *testing.T) {
-	user := User{Username: "testuser"}
+func TestUser_DontStartNewSegmentForActiveSegment(t *testing.T) {
+	u := &User{}
+	start := time.Now().Add(-1 * time.Hour)
+	sessionID := "activeSegTest"
+	u.AddSession(start, sessionID)
 
-	// Add a session from yesterday (should not be included in total)
-	yesterday := time.Now().Add(-24 * time.Hour)
-	user.AddSession(yesterday)
-	user.Sessions[0].EndSession(yesterday.Add(1 * time.Hour)) // 1 hour session
+	// Add a segment and do not end it
+	sess, _ := u.GetSessionByID(sessionID)
+	sess.AddSegment(time.Now().Add(-30 * time.Minute))
 
-	// Add a session from today
-	todayStart := time.Now().Add(-2 * time.Hour) // 2 hours ago
-	user.AddSession(todayStart)
-	user.Sessions[1].EndSession(todayStart.Add(1 * time.Hour)) // 1 hour session
+	u.StartNewSegments()
+	for _, sess := range u.Sessions {
+		if sess.IsActive() && len(sess.Segments) != 1 {
+			t.Errorf("No new segment should be started if there's an active segment")
+		}
+	}
+}
 
-	// Add an ongoing session from today
-	ongoingStart := time.Now().Add(-30 * time.Minute) // 30 minutes ago
-	user.AddSession(ongoingStart)
+func TestUser_GetActiveSession(t *testing.T) {
+	u := &User{}
+	u.AddSession(time.Now().Add(-1*time.Hour), "a1")
+	u.AddSession(time.Now().Add(-30*time.Minute), "a2")
+	u.EndSession(time.Now(), "a2")
+	active := u.GetActiveSession()
+	if active == nil || active.SessionId != "a1" {
+		t.Errorf("GetActiveSession returned wrong session: %+v", active)
+	}
+}
 
-	totalDuration := user.TotalSessionDuration()
-	expectedDuration := int64(3600 + 1800) // 1 hour + 30 minutes in seconds
+func TestUser_IsSessionActive(t *testing.T) {
+	u := &User{}
+	u.AddSession(time.Now(), "foo")
+	if !u.IsSessionActive("foo") {
+		t.Errorf("IsSessionActive = false, want true")
+	}
+	u.EndSession(time.Now(), "foo")
+	if u.IsSessionActive("foo") {
+		t.Errorf("IsSessionActive = true, want false")
+	}
+}
 
-	if totalDuration < expectedDuration || totalDuration > expectedDuration+1 {
-		t.Errorf("expected total duration to be around %d seconds, got %d", expectedDuration, totalDuration)
+func TestUser_PauseResume(t *testing.T) {
+	u := &User{}
+	u.Pause()
+	if !u.Paused {
+		t.Errorf("Pause() did not set Paused to true")
+	}
+	u.Resume()
+	if u.Paused {
+		t.Errorf("Resume() did not set Paused to false")
+	}
+}
+
+func TestUser_GetTimeUsed(t *testing.T) {
+	u := &User{}
+	start := time.Now().Add(-2 * time.Hour)
+	u.AddSession(start, "t1")
+	u.EndSession(start.Add(1*time.Hour), "t1")
+	if u.GetTimeUsed() < 3600 {
+		t.Errorf("GetTimeUsed = %d, want at least 3600", u.GetTimeUsed())
 	}
 }
