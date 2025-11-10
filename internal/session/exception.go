@@ -2,12 +2,12 @@ package session
 
 import "time"
 
-func NewException(reason string, extraHours int, expiresAt time.Time) Exception {
+func NewOverride(reason string, extraHours int, expiresAt time.Time) Override {
 	if expiresAt.IsZero() {
 		// expire at eod today
 		expiresAt = time.Now().Truncate(24 * time.Hour).Add(24*time.Hour - time.Nanosecond)
 	}
-	return Exception{
+	return Override{
 		Reason:    reason,
 		ExtraTime: extraHours,
 		ExpiresAt: expiresAt,

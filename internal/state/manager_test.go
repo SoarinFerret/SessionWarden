@@ -66,13 +66,13 @@ func TestManager_CleanupExpiredExceptions(t *testing.T) {
 	path, cleanup := tempStateFile(t)
 	defer cleanup()
 	m, _ := NewManager(path)
-	expired := session.Exception{ExpiresAt: time.Now().Add(-1 * time.Hour)}
-	valid := session.Exception{ExpiresAt: time.Now().Add(1 * time.Hour)}
-	user := session.User{Exceptions: []session.Exception{expired, valid}}
+	expired := session.Override{ExpiresAt: time.Now().Add(-1 * time.Hour)}
+	valid := session.Override{ExpiresAt: time.Now().Add(1 * time.Hour)}
+	user := session.User{Overrides: []session.Override{expired, valid}}
 	m.state.Users["bob"] = user
 
-	m.CleanupExpiredExceptions()
-	exs := m.state.Users["bob"].Exceptions
+	m.CleanupExpiredOverrides()
+	exs := m.state.Users["bob"].Overrides
 	if len(exs) != 1 || !exs[0].ExpiresAt.Equal(valid.ExpiresAt) {
 		t.Errorf("CleanupExpiredExceptions did not filter expired exceptions")
 	}

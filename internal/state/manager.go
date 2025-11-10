@@ -128,18 +128,18 @@ func (m *Manager) startUpChecks() {
 }
 
 // CleanupExpiredExceptions removes any expired ones.
-func (m *Manager) CleanupExpiredExceptions() {
+func (m *Manager) CleanupExpiredOverrides() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := time.Now()
 	for uname, user := range m.state.Users {
-		var validEx []session.Exception
-		for _, ex := range user.Exceptions {
+		var validEx []session.Override
+		for _, ex := range user.Overrides {
 			if ex.ExpiresAt.After(now) {
 				validEx = append(validEx, ex)
 			}
 		}
-		user.Exceptions = validEx
+		user.Overrides = validEx
 		m.state.Users[uname] = user
 	}
 }
