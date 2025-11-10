@@ -14,6 +14,13 @@ type TimeRange struct {
 	End   time.Time
 }
 
+func (tr *TimeRange) WithinRange(t time.Time) bool {
+	start := time.Date(t.Year(), t.Month(), t.Day(), tr.Start.Hour(), tr.Start.Minute(), 0, 0, t.Location())
+	end := time.Date(t.Year(), t.Month(), t.Day(), tr.End.Hour(), tr.End.Minute(), 0, 0, t.Location())
+
+	return !t.Before(start) && !t.After(end)
+}
+
 func (tr *TimeRange) UnmarshalText(text []byte) error {
 	str := string(text)
 	parts := strings.Split(str, "-")
@@ -104,32 +111,29 @@ func (c *Config) SetDefault() {
 	}
 }
 
-var AppConfig Config
-
-func LoadConfigFromFile(path string) error {
+func LoadConfigFromFile(path string) (*Config, error) {
 	file, err := os.OpenFile(path, os.O_RDONLY|os.O_CREATE, 0644)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer file.Close()
 	decoder := toml.NewDecoder(file)
 	var config Config
 	err = decoder.Decode(&config)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	AppConfig = config
-	AppConfig.SetDefault()
-	return nil
+	config.SetDefault()
+	return &config, nil
 }
 
-func LoadConfigFromBytes(data []byte) error {
+func LoadConfigFromBytes(data []byte) (Config, error) {
 	var config Config
 	err := toml.Unmarshal(data, &config)
 	if err != nil {
-		return err
+		return config, err
 	}
-	AppConfig = config
-	AppConfig.SetDefault()
-	return nil
+
+	config.SetDefault()
+	return config, nil
 }

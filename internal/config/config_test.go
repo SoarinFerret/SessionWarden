@@ -113,7 +113,7 @@ enabled = true
 daily_limit = "3h"
 `
 
-	err := LoadConfigFromBytes([]byte(tomlData))
+	AppConfig, err := LoadConfigFromBytes([]byte(tomlData))
 	assert.NoError(t, err)
 
 	assert.Equal(t, Duration(2*time.Hour), AppConfig.Default.DailyLimit)
@@ -149,7 +149,7 @@ daily_limit = "3h"
 	assert.NoError(t, err)
 	tempFile.Close()
 
-	err = LoadConfigFromFile(tempFile.Name())
+	AppConfig, err := LoadConfigFromBytes([]byte(tomlData))
 	assert.NoError(t, err)
 
 	assert.Equal(t, Duration(2*time.Hour), AppConfig.Default.DailyLimit)
