@@ -58,12 +58,12 @@ func TestPermitLogin_AllowedHours(t *testing.T) {
 		t.Errorf("expected PermitLogin to deny login outside allowed hours")
 	}
 
-	now = time.Date(2024, 6, 2, 11, 0, 0, 0, time.UTC) // Sunday at 11:00
+	now = time.Date(2024, 6, 1, 11, 0, 0, 0, time.UTC) // Saturday at 11:00
 	if !PermitLogin("alice", st, cfg, now) {
 		t.Errorf("expected PermitLogin to allow login during weekend hours")
 	}
 
-	now = time.Date(2024, 6, 2, 15, 0, 0, 0, time.UTC) // Sunday at 15:00
+	now = time.Date(2024, 6, 1, 15, 0, 0, 0, time.UTC) // Sunday at 15:00
 	if PermitLogin("alice", st, cfg, now) {
 		t.Errorf("expected PermitLogin to deny login outside weekend hours")
 	}

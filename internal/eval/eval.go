@@ -19,19 +19,30 @@ func PermitLogin(username string, state state.State, config config.Config, now t
 		return true
 	}
 
-	// check allowed hours
-	if now.Weekday() == time.Saturday || now.Weekday() == time.Sunday {
-		if !userConfig.WeekendHours.WithinRange(now) {
+	userNotFound := false
+	userState, err := state.GetUser(username)
+	if err != nil {
+		userNotFound = true // process this later
+	}
+
+	if userState.AllowedHoursOverrideIsSet() {
+		if !userState.AllowedHoursOverrideWithinRange(now) {
 			return false
 		}
 	} else {
-		if !userConfig.AllowedHours.WithinRange(now) {
-			return false
+		// check allowed hours
+		if now.Weekday() == time.Friday || now.Weekday() == time.Saturday {
+			if !userConfig.WeekendHours.WithinRange(now) {
+				return false
+			}
+		} else {
+			if !userConfig.AllowedHours.WithinRange(now) {
+				return false
+			}
 		}
 	}
 
-	userState, err := state.GetUser(username)
-	if err != nil {
+	if userNotFound {
 		// User not found, apply default policy
 		return true
 	}
