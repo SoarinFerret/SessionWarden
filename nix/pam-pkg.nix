@@ -5,21 +5,22 @@ pkgs.stdenv.mkDerivation {
   version = "0.1";
 
   src = ../pam/pam_sessionwarden.c;
+  dontUnpack = true;
 
   buildInputs = [
     pkgs.pam
     pkgs.dbus
   ];
+   nativeBuildInputs = [ pkgs.pkg-config ];
+
 
   # Output should be a .so file for PAM
   buildPhase = ''
     mkdir -p $out/lib/security
     ${pkgs.gcc}/bin/gcc -fPIC -shared -o $out/lib/security/pam_sessionwarden.so $src \
-      -I${pkgs.pam.dev}/include/security \
-      -I${pkgs.dbus.dev}/include/dbus-1.0 \
-      -I${pkgs.dbus.dev}/lib/dbus-1.0/include \
-      -L${pkgs.pam.out}/lib -lpam \
-      -L${pkgs.dbus.out}/lib -ldbus-1
+      $(pkg-config --cflags --libs dbus-1) \
+      -I${pkgs.pam}/include/security \
+      -L${pkgs.pam}/lib -lpam
   '';
 
   installPhase = ''
@@ -27,7 +28,7 @@ pkgs.stdenv.mkDerivation {
     true
   '';
 
-  meta = with lib; {
+  meta = with pkgs.lib; {
     homepage = "https://github.com/soarinferret/sessionwarden";
     description = "A PAM module for allowing authentication based on policy decisions made by SessionWarden";
     license = licenses.gpl3;

@@ -19,14 +19,16 @@
           ];
           vendorHash = null; # Fill this in after first build
         };
+        pam_sessionwarden = pkgs.callPackage ./nix/pam-pkg.nix {};
       in {
         packages.sessionwarden = sessionwarden;
+        packages.pam_sessionwarden = pam_sessionwarden;
 
         nixosConfigurations.vm = nixpkgs.lib.nixosSystem {
           system = "x86_64-linux";
           modules = [
-            ({ pkgs, ... }: {
-              environment.systemPackages = [ sessionwarden ];
+            ({ config, pkgs, ... }: {
+              environment.systemPackages = [ sessionwarden pam_sessionwarden ];
               services.xserver.enable = true;
               services.xserver.desktopManager.gnome.enable = true;
               services.xserver.displayManager.gdm.enable = true;
@@ -44,6 +46,51 @@
                 };
               };
               services.openssh.enable = true;
+
+              #### SystemD service
+              systemd.services.sessionwardend = {
+                description = "SessionWarden Daemon";
+                wantedBy = [ "multi-user.target" ];
+                after = [ "network.target" "dbus.service" ];
+                serviceConfig = {
+                  Type = "simple";
+                  ExecStart = "${sessionwarden}/bin/sessionwardend";
+                  User = "root";
+                  Restart = "on-failure";
+                };
+                # Optionally, add environment variables or dependencies here
+              };
+
+              ##### PAM Configuration for SessionWarden #####
+              # Symlink the PAM module into the correct place
+              systemd.tmpfiles.rules = [
+                "L+ /lib/security/pam_sessionwarden.so - - - - ${pam_sessionwarden}/lib/security/pam_sessionwarden.so"
+              ];
+
+              # Add to the login PAM stack (repeat for other services as needed)
+              security.pam.services.login.rules.account.sessionwarden = {
+                enable = true;
+                order = config.security.pam.services.login.rules.account.unix.order - 10;
+                control = "required";
+                modulePath = "/lib/security/pam_sessionwarden.so";
+
+              };
+
+              # write file to /etc/sessionwarden/config.toml
+              environment.etc."sessionwarden/config.toml".text = ''
+                [default]
+                daily_limit = "2h"
+                allowed_hours = "09:00-17:00"
+                weekend_hours = "10:00-14:00"
+                notify_before = ["10m", "5m"]
+                lock_screen = true
+                enabled = true
+
+                [users]
+                [users.nixos]
+                daily_limit = "3h"
+              '';
+
               services.dbus.packages = [
                 (pkgs.writeTextDir "share/dbus-1/system.d/io.github.soarinferret.sessionwarden.conf" ''
                   <!DOCTYPE busconfig PUBLIC
