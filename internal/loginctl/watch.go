@@ -72,6 +72,7 @@ func Watch(ctx context.Context, sm *state.Manager) error {
 						break
 					}
 
+					log.Println("SessionNew for user", username, "session", sessionPath)
 					sm.HandleLogin(username, string(sessionPath))
 				}
 			case "org.freedesktop.login1.Manager.SessionRemoved":
@@ -81,15 +82,17 @@ func Watch(ctx context.Context, sm *state.Manager) error {
 						log.Println("SessionNew: failed to get session object path")
 						break
 					}
-
+					log.Println("SessionRemoved for", sessionPath)
 					sm.HandleLogout(string(sessionPath))
 				}
 			case "org.freedesktop.login1.Manager.PrepareForSleep":
 				if len(sig.Body) > 0 {
 					sleeping, _ := sig.Body[0].(bool)
 					if sleeping {
+						log.Println("System is going to sleep")
 						sm.HandleSleep()
 					} else {
+						log.Println("System has woken up")
 						sm.HandleWake()
 					}
 				}

@@ -143,3 +143,10 @@ func (m *Manager) CleanupExpiredOverrides() {
 		m.state.Users[uname] = user
 	}
 }
+
+// GetState returns the current state.
+func (m *Manager) GetState() *State {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.state
+}
