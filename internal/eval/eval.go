@@ -25,7 +25,7 @@ func PermitLogin(username string, state state.State, config config.Config, now t
 		userNotFound = true // process this later
 	}
 
-	if userState.AllowedHoursOverrideIsSet() {
+	if !userNotFound && userState.AllowedHoursOverrideIsSet() {
 		if !userState.AllowedHoursOverrideWithinRange(now) {
 			return false
 		}
