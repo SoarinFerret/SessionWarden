@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/SoarinFerret/SessionWarden/internal/config"
 )
 
 func TestUser_AddSessionAndGetSessionByID(t *testing.T) {
@@ -134,4 +136,42 @@ func TestUser_GetTimeUsed(t *testing.T) {
 	if u.GetTimeUsed() < 3600 {
 		t.Errorf("GetTimeUsed = %d, want at least 3600", u.GetTimeUsed())
 	}
+}
+
+func TestUser_OverrideAllowedHours(t *testing.T) {
+	u := &User{}
+	u.AddOverride(NewAllowedHoursOverride("", config.TimeRange{Start: time.Now().Add(-1 * time.Hour), End: time.Now().Add(1 * time.Hour)}, time.Time{}))
+
+	if len(u.Overrides) != 1 {
+		t.Errorf("Expected 1 override, got %d", len(u.Overrides))
+	}
+
+	if u.AllowedHoursOverrideIsSet() != true {
+		t.Errorf("Expected AllowedHoursOverrideIsSet to be true")
+	}
+
+	if u.AllowedHoursOverrideWithinRange(time.Now()) != true {
+		t.Errorf("Expected AllowedHoursOverrideWithinRange to be true")
+	}
+
+	if u.AllowedHoursOverrideWithinRange(time.Now().Add(12*time.Hour)) == true {
+		t.Errorf("Expected AllowedHoursOverrideWithinRange to be false")
+	}
+
+}
+
+func TestUser_OverrideDuration(t *testing.T) {
+	u := &User{}
+	u.AddOverride(
+		NewExtraTimeOverride(
+			"",
+			3600,
+			time.Time{})
+	)
+
+	if len(u.Overrides) != 1 {
+		t.Errorf("Expected 1 override, got %d", len(u.Overrides))
+	}
+
+
 }

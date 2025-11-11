@@ -84,3 +84,34 @@ func (u *User) GetTimeUsed() int64 {
 	}
 	return totalDuration
 }
+
+func (u *User) AllowedHoursOverrideIsSet() bool {
+	// check all overrides for AllowedHours set
+	for _, override := range u.Overrides {
+		if override.AllowedHours.IsEmpty() == false {
+			return true
+		}
+	}
+	return false
+}
+
+func (u *User) AllowedHoursOverrideWithinRange(now time.Time) bool {
+	// evaluate all overrides for AllowedHours
+	for _, override := range u.Overrides {
+		if override.IsExpired(now) {
+			continue
+		}
+		allow, err := override.EvalAllowedHours(now)
+		if err != nil {
+			continue
+		}
+		if allow == false {
+			return false
+		}
+	}
+	return true
+}
+
+func (u *User) AddOverride(o Override) {
+	u.Overrides = append(u.Overrides, o)
+}
