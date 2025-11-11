@@ -21,6 +21,10 @@ func (tr *TimeRange) WithinRange(t time.Time) bool {
 	return !t.Before(start) && !t.After(end)
 }
 
+func (tr *TimeRange) IsEmpty() bool {
+	return tr.Start.IsZero() && tr.End.IsZero()
+}
+
 func (tr *TimeRange) UnmarshalText(text []byte) error {
 	str := string(text)
 	parts := strings.Split(str, "-")
