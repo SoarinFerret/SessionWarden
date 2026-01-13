@@ -166,7 +166,7 @@ func TestUser_OverrideDuration(t *testing.T) {
 		NewExtraTimeOverride(
 			"",
 			3600,
-			time.Time{})
+			time.Time{}),
 	)
 
 	if len(u.Overrides) != 1 {
