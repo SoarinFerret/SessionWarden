@@ -150,3 +150,10 @@ func (m *Manager) GetState() *State {
 	defer m.mu.Unlock()
 	return m.state
 }
+
+// Save atomically writes the state file to disk (public wrapper).
+func (m *Manager) Save() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.save()
+}

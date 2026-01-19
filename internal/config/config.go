@@ -25,6 +25,12 @@ func (tr *TimeRange) IsEmpty() bool {
 	return tr.Start.IsZero() && tr.End.IsZero()
 }
 
+func ParseTimeRange(s string) (TimeRange, error) {
+	var tr TimeRange
+	err := tr.UnmarshalText([]byte(s))
+	return tr, err
+}
+
 func (tr *TimeRange) UnmarshalText(text []byte) error {
 	str := string(text)
 	parts := strings.Split(str, "-")

@@ -10,10 +10,11 @@ import (
 	"github.com/SoarinFerret/SessionWarden/internal/ipc"
 )
 
-var statusCmd = &cobra.Command{
-	Use:     "ping",
-	Aliases: []string{"status"},
-	Short:   "Check if SessionWarden daemon is running",
+var pauseCmd = &cobra.Command{
+	Use:     "pause <username>",
+	Aliases: []string{"p"},
+	Short:   "Pause session tracking for a user",
+	Args:    cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		conn, err := dbus.ConnectSystemBus()
 		if err != nil {
@@ -23,16 +24,16 @@ var statusCmd = &cobra.Command{
 
 		obj := conn.Object(ipc.ServiceName, dbus.ObjectPath(ipc.ObjectPath))
 
-		var result string
-		err = obj.Call(ipc.InterfaceName+".Ping", 0).Store(&result)
+		err = obj.Call(ipc.InterfaceName+".PauseUser", 0, args[0]).Store()
 		if err != nil {
 			log.Fatal("Failed to call method:", err)
 		}
 
-		fmt.Println("SessionWarden daemon is running")
+		fmt.Printf("Session tracking paused for user: %s\n", args[0])
 	},
 }
 
 func init() {
-	rootCmd.AddCommand(statusCmd)
+	rootCmd.AddCommand(pauseCmd)
+
 }
