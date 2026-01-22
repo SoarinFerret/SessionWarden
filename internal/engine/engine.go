@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/SoarinFerret/SessionWarden/internal/config"
+	"github.com/SoarinFerret/SessionWarden/internal/eval"
 	"github.com/SoarinFerret/SessionWarden/internal/state"
 	"github.com/godbus/dbus/v5"
 )
@@ -60,6 +61,8 @@ func (e *Engine) checkSessions() {
 	now := time.Now()
 	currentState := e.stateMgr.GetState()
 
+	log.Printf("DEBUG: Checking sessions at %s", now.Format(time.RFC3339))
+
 	for username, user := range currentState.Users {
 		// Skip if user is paused or has no active sessions
 		if user.Paused {
@@ -83,35 +86,25 @@ func (e *Engine) checkSessions() {
 			continue
 		}
 
+		// check if eval.PermitLogin would block login now
+		if !eval.PermitLogin(username, *currentState, *e.config, now) {
+			log.Printf("User %s is not permitted to log in now - locking all sessions", username)
+			if err := e.lockSessions(username, userConfig); err != nil {
+				log.Printf("Failed to lock sessions for %s: %v", username, err)
+			}
+			continue
+		}
+
 		// Calculate time used and time remaining
 		timeUsedSeconds := user.GetTimeUsed()
 		dailyLimitSeconds := int64(time.Duration(userConfig.DailyLimit).Seconds())
-
-		// Add extra time from overrides
-		for _, override := range user.Overrides {
-			if !override.IsExpired(now) && override.ExtraTime > 0 {
-				dailyLimitSeconds += int64(override.ExtraTime * 60) // ExtraTime is in minutes
-			}
-		}
-
-		// Skip if no daily limit is set
-		if dailyLimitSeconds <= 0 {
-			continue
-		}
-
 		timeRemainingSeconds := dailyLimitSeconds - timeUsedSeconds
-
-		// Check if time has run out
-		if timeRemainingSeconds <= 0 {
-			log.Printf("User %s has exceeded daily limit - locking session %s", username, activeSession.SessionId)
-			if err := e.lockSession(username, activeSession.SessionId, userConfig); err != nil {
-				log.Printf("Failed to lock session for %s: %v", username, err)
-			}
-			continue
-		}
 
 		// Send notifications based on notify_before configuration
 		e.sendNotifications(username, activeSession.SessionId, timeRemainingSeconds, userConfig.NotifyBefore)
+
+		// Debug logging
+		log.Printf("DEBUG: User %s has %d seconds remaining out of %d seconds daily limit", username, timeRemainingSeconds, dailyLimitSeconds)
 	}
 
 	// Update heartbeat
@@ -120,6 +113,9 @@ func (e *Engine) checkSessions() {
 
 // sendNotifications sends desktop notifications to users when time is running low
 func (e *Engine) sendNotifications(username, sessionID string, timeRemainingSeconds int64, notifyBefore []config.Duration) {
+
+	log.Printf("DEBUG: Preparing to send notifications to %s with %d seconds remaining", username, timeRemainingSeconds)
+
 	if len(notifyBefore) == 0 {
 		return
 	}
@@ -178,16 +174,16 @@ func (e *Engine) sendDesktopNotification(username, sessionID, message string) er
 	// Send notification via org.freedesktop.Notifications
 	obj := userConn.Object("org.freedesktop.Notifications", "/org/freedesktop/Notifications")
 	call := obj.Call("org.freedesktop.Notifications.Notify", 0,
-		"SessionWarden",              // app_name
-		uint32(0),                    // replaces_id
-		"dialog-warning",             // app_icon
-		"Session Time Warning",       // summary
+		"SessionWarden",        // app_name
+		uint32(0),              // replaces_id
+		"dialog-warning",       // app_icon
+		"Session Time Warning", // summary
 		fmt.Sprintf("You have %s of session time remaining", message), // body
-		[]string{},                   // actions
-		map[string]dbus.Variant{      // hints
+		[]string{}, // actions
+		map[string]dbus.Variant{ // hints
 			"urgency": dbus.MakeVariant(byte(1)), // normal urgency
 		},
-		int32(10000),                 // expire_timeout (10 seconds)
+		int32(10000), // expire_timeout (10 seconds)
 	)
 
 	if call.Err != nil {
@@ -244,21 +240,21 @@ func (e *Engine) getSessionBusAddress(sessionID string) (string, error) {
 	return busAddr, nil
 }
 
-// lockSession locks a user session using loginctl
-func (e *Engine) lockSession(username, sessionID string, userConfig config.UserConfig) error {
+// lockSessions locks all sessions for a user using loginctl
+func (e *Engine) lockSessions(username string, userConfig config.UserConfig) error {
 	// Check if we should lock or just log
 	if userConfig.LockScreen != nil && !*userConfig.LockScreen {
-		log.Printf("Lock screen disabled for %s - session would be locked but policy says no", username)
+		log.Printf("Lock screen disabled for %s - sessions would be locked but policy says no", username)
 		return nil
 	}
 
 	obj := e.conn.Object("org.freedesktop.login1", "/org/freedesktop/login1")
-	call := obj.Call("org.freedesktop.login1.Manager.LockSession", 0, sessionID)
+	call := obj.Call("org.freedesktop.login1.Manager.LockSessions", 0)
 
 	if call.Err != nil {
-		return fmt.Errorf("failed to lock session %s: %w", sessionID, call.Err)
+		return fmt.Errorf("failed to lock sessions for %s: %w", username, call.Err)
 	}
 
-	log.Printf("Successfully locked session %s for user %s", sessionID, username)
+	log.Printf("Successfully locked all sessions for user %s", username)
 	return nil
 }
