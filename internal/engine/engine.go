@@ -88,9 +88,9 @@ func (e *Engine) checkSessions() {
 
 		// check if eval.PermitLogin would block login now
 		if !eval.PermitLogin(username, *currentState, *e.config, now) {
-			log.Printf("User %s is not permitted to log in now - locking all sessions", username)
-			if err := e.lockSessions(username, userConfig); err != nil {
-				log.Printf("Failed to lock sessions for %s: %v", username, err)
+			log.Printf("User %s is not permitted to log in now - locking session", username)
+			if err := e.lockSession(username, activeSession.SessionId, userConfig); err != nil {
+				log.Printf("Failed to lock session for %s: %v", username, err)
 			}
 			continue
 		}
@@ -102,9 +102,6 @@ func (e *Engine) checkSessions() {
 
 		// Send notifications based on notify_before configuration
 		e.sendNotifications(username, activeSession.SessionId, timeRemainingSeconds, userConfig.NotifyBefore)
-
-		// Debug logging
-		log.Printf("DEBUG: User %s has %d seconds remaining out of %d seconds daily limit", username, timeRemainingSeconds, dailyLimitSeconds)
 	}
 
 	// Update heartbeat
@@ -240,21 +237,45 @@ func (e *Engine) getSessionBusAddress(sessionID string) (string, error) {
 	return busAddr, nil
 }
 
-// lockSessions locks all sessions for a user using loginctl
-func (e *Engine) lockSessions(username string, userConfig config.UserConfig) error {
+// lockSession locks a specific user session using loginctl
+func (e *Engine) lockSession(username, sessionPath string, userConfig config.UserConfig) error {
 	// Check if we should lock or just log
 	if userConfig.LockScreen != nil && !*userConfig.LockScreen {
-		log.Printf("Lock screen disabled for %s - sessions would be locked but policy says no", username)
+		log.Printf("Lock screen disabled for %s - session would be locked but policy says no", username)
 		return nil
 	}
 
-	obj := e.conn.Object("org.freedesktop.login1", "/org/freedesktop/login1")
-	call := obj.Call("org.freedesktop.login1.Manager.LockSessions", 0)
+	// Get the session object
+	sessionObj := e.conn.Object("org.freedesktop.login1", dbus.ObjectPath(sessionPath))
 
-	if call.Err != nil {
-		return fmt.Errorf("failed to lock sessions for %s: %w", username, call.Err)
+	// Check if session is already locked
+	lockedVariant, err := sessionObj.GetProperty("org.freedesktop.login1.Session.LockedHint")
+	if err != nil {
+		return fmt.Errorf("failed to get LockedHint from path %s: %w", sessionPath, err)
 	}
 
-	log.Printf("Successfully locked all sessions for user %s", username)
+	isLocked := lockedVariant.Value().(bool)
+	if isLocked {
+		log.Printf("Session for %s is already locked, skipping", username)
+		return nil
+	}
+
+	// Get the actual session ID from the session object
+	idVariant, err := sessionObj.GetProperty("org.freedesktop.login1.Session.Id")
+	if err != nil {
+		return fmt.Errorf("failed to get session ID from path %s: %w", sessionPath, err)
+	}
+
+	sessionID := idVariant.Value().(string)
+
+	// Lock the session using the actual ID
+	managerObj := e.conn.Object("org.freedesktop.login1", "/org/freedesktop/login1")
+	call := managerObj.Call("org.freedesktop.login1.Manager.LockSession", 0, sessionID)
+
+	if call.Err != nil {
+		return fmt.Errorf("failed to lock session %s for %s: %w", sessionID, username, call.Err)
+	}
+
+	log.Printf("Successfully locked session %s for user %s", sessionID, username)
 	return nil
 }
