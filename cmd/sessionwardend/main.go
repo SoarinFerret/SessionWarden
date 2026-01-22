@@ -44,6 +44,12 @@ func main() {
 		cancel()
 	}()
 
+	// Create the user engine (needs to be accessible by IPC)
+	userEngine, err := engine.NewEngine(stateMgr, config)
+	if err != nil {
+		log.Fatal("Failed to create user engine:", err)
+	}
+
 	var wg sync.WaitGroup
 
 	// Start the loginctl listener (system D-Bus)
@@ -61,7 +67,7 @@ func main() {
 	go func() {
 		defer wg.Done()
 		log.Println("Opening system D-Bus service...")
-		if err := serveSessionWarden(ctx, stateMgr, config, true); err != nil {
+		if err := serveSessionWarden(ctx, stateMgr, config, userEngine, true); err != nil {
 			log.Println("sessionwarden service error:", err)
 		}
 	}()
@@ -70,11 +76,6 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		userEngine, err := engine.NewEngine(stateMgr, config)
-		if err != nil {
-			log.Println("Failed to create user engine:", err)
-			return
-		}
 		if err := userEngine.Run(ctx); err != nil {
 			log.Println("user engine error:", err)
 		}
@@ -85,7 +86,7 @@ func main() {
 
 }
 
-func serveSessionWarden(ctx context.Context, stateMgr *state.Manager, config *config.Config, system bool) error {
+func serveSessionWarden(ctx context.Context, stateMgr *state.Manager, config *config.Config, userEngine *engine.Engine, system bool) error {
 	conn := &dbus.Conn{}
 	if system {
 		var err error
@@ -107,7 +108,7 @@ func serveSessionWarden(ctx context.Context, stateMgr *state.Manager, config *co
 		return fmt.Errorf("failed to request name: %w", err)
 	}
 
-	sm := &ipc.SessionManager{Manager: stateMgr, Config: config}
+	sm := &ipc.SessionManager{Manager: stateMgr, Config: config, Engine: userEngine}
 	err = conn.Export(sm, dbus.ObjectPath(ipc.ObjectPath), ipc.InterfaceName)
 	if err != nil {
 		return fmt.Errorf("failed to export interface: %w", err)

@@ -13,7 +13,7 @@ import (
 var resumeCmd = &cobra.Command{
 	Use:     "resume <username>",
 	Aliases: []string{"r"},
-	Short:   "Resume session tracking for a user",
+	Short:   "Resume session for a user",
 	Args:    cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		conn, err := dbus.ConnectSystemBus()
@@ -29,7 +29,7 @@ var resumeCmd = &cobra.Command{
 			log.Fatal("Failed to call method:", err)
 		}
 
-		fmt.Printf("Session tracking resumed for user: %s\n", args[0])
+		fmt.Printf("Session resumed for user: %s\n", args[0])
 	},
 }
 

@@ -19,9 +19,15 @@ const (
 	ServiceName   = "io.github.soarinferret.sessionwarden"
 )
 
+// Engine interface to avoid circular dependency
+type Engine interface {
+	LockUserSession(username string) error
+}
+
 type SessionManager struct {
 	Manager *state.Manager
 	Config  *config.Config
+	Engine  Engine
 }
 
 func (s *SessionManager) Ping() (string, *dbus.Error) {
@@ -81,6 +87,16 @@ func (s *SessionManager) PauseUser(user string) *dbus.Error {
 	// Persist the change
 	if err := s.Manager.Save(); err != nil {
 		return dbus.MakeFailedError(fmt.Errorf("failed to save state: %w", err))
+	}
+
+	// Lock the user's session if they have an active session
+	if s.Engine != nil {
+		if err := s.Engine.LockUserSession(user); err != nil {
+			log.Printf("Warning: Failed to lock session for %s: %v", user, err)
+			// Don't return error - pause was successful even if lock failed
+		} else {
+			log.Printf("Successfully locked session for paused user %s", user)
+		}
 	}
 
 	return nil

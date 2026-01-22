@@ -95,10 +95,8 @@ func (e *Engine) checkSessions() {
 			continue
 		}
 
-		// Calculate time used and time remaining
-		timeUsedSeconds := user.GetTimeUsed()
-		dailyLimitSeconds := int64(time.Duration(userConfig.DailyLimit).Seconds())
-		timeRemainingSeconds := dailyLimitSeconds - timeUsedSeconds
+		// Calculate time remaining using eval package (handles overrides)
+		timeRemainingSeconds := eval.GetTimeRemaining(username, *currentState, *e.config, now)
 
 		// Send notifications based on notify_before configuration
 		e.sendNotifications(username, activeSession.SessionId, timeRemainingSeconds, userConfig.NotifyBefore)
@@ -109,28 +107,22 @@ func (e *Engine) checkSessions() {
 }
 
 // sendNotifications sends desktop notifications to users when time is running low
-func (e *Engine) sendNotifications(username, sessionID string, timeRemainingSeconds int64, notifyBefore []config.Duration) {
+func (e *Engine) sendNotifications(username, sessionPath string, timeRemainingSeconds int64, notifyBefore []config.Duration) {
 
 	log.Printf("DEBUG: Preparing to send notifications to %s with %d seconds remaining", username, timeRemainingSeconds)
 
-	if len(notifyBefore) == 0 {
+	// Check if we should send a notification
+	if !eval.CheckSendNotification(timeRemainingSeconds, notifyBefore) {
 		return
 	}
 
+	// Send notification
 	timeRemaining := time.Duration(timeRemainingSeconds) * time.Second
-
-	for _, notifyDuration := range notifyBefore {
-		notifyAt := time.Duration(notifyDuration)
-
-		// Check if we should notify (within 1 minute window to account for check interval)
-		if timeRemaining <= notifyAt && timeRemaining > (notifyAt-time.Minute) {
-			message := formatTimeRemaining(timeRemaining)
-			if err := e.sendDesktopNotification(username, sessionID, message); err != nil {
-				log.Printf("Failed to send notification to %s: %v", username, err)
-			} else {
-				log.Printf("Sent notification to %s: %s remaining", username, message)
-			}
-		}
+	message := formatTimeRemaining(timeRemaining)
+	if err := e.sendDesktopNotification(username, sessionPath, message); err != nil {
+		log.Printf("Failed to send notification to %s: %v", username, err)
+	} else {
+		log.Printf("Sent notification to %s: %s remaining", username, message)
 	}
 }
 
@@ -146,9 +138,9 @@ func formatTimeRemaining(d time.Duration) string {
 }
 
 // sendDesktopNotification sends a notification to the user's desktop
-func (e *Engine) sendDesktopNotification(username, sessionID, message string) error {
+func (e *Engine) sendDesktopNotification(username, sessionPath, message string) error {
 	// Get the user's session bus address from loginctl
-	sessionBusAddr, err := e.getSessionBusAddress(sessionID)
+	sessionBusAddr, err := e.getSessionBusAddress(sessionPath)
 	if err != nil {
 		return fmt.Errorf("failed to get session bus address: %w", err)
 	}
@@ -191,8 +183,9 @@ func (e *Engine) sendDesktopNotification(username, sessionID, message string) er
 }
 
 // getSessionBusAddress retrieves the D-Bus session address for a loginctl session
-func (e *Engine) getSessionBusAddress(sessionID string) (string, error) {
-	obj := e.conn.Object("org.freedesktop.login1", dbus.ObjectPath("/org/freedesktop/login1/session/"+sessionID))
+// sessionPath should be the full D-Bus path (e.g., "/org/freedesktop/login1/session/_00")
+func (e *Engine) getSessionBusAddress(sessionPath string) (string, error) {
+	obj := e.conn.Object("org.freedesktop.login1", dbus.ObjectPath(sessionPath))
 
 	variant, err := obj.GetProperty("org.freedesktop.login1.Session.Display")
 	if err != nil {
@@ -235,6 +228,35 @@ func (e *Engine) getSessionBusAddress(sessionID string) (string, error) {
 	}
 
 	return busAddr, nil
+}
+
+// LockUserSession locks the active session for a user (public method for IPC)
+func (e *Engine) LockUserSession(username string) error {
+	currentState := e.stateMgr.GetState()
+
+	// Get user from state
+	user, err := currentState.GetUser(username)
+	if err != nil {
+		return fmt.Errorf("user not found: %w", err)
+	}
+
+	// Get user configuration
+	userConfig, exists := e.config.Users[username]
+	if !exists {
+		// No policy - create default config with lock enabled
+		lockEnabled := true
+		userConfig = config.UserConfig{
+			LockScreen: &lockEnabled,
+		}
+	}
+
+	// Get active session
+	activeSession := user.GetActiveSession()
+	if activeSession == nil {
+		return fmt.Errorf("no active session for user %s", username)
+	}
+
+	return e.lockSession(username, activeSession.SessionId, userConfig)
 }
 
 // lockSession locks a specific user session using loginctl

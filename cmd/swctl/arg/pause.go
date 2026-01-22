@@ -12,8 +12,8 @@ import (
 
 var pauseCmd = &cobra.Command{
 	Use:     "pause <username>",
-	Aliases: []string{"p"},
-	Short:   "Pause session tracking for a user",
+	Aliases: []string{"p", "lock"},
+	Short:   "Pause / lock user session until manually resumed",
 	Args:    cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		conn, err := dbus.ConnectSystemBus()
@@ -29,7 +29,7 @@ var pauseCmd = &cobra.Command{
 			log.Fatal("Failed to call method:", err)
 		}
 
-		fmt.Printf("Session tracking paused for user: %s\n", args[0])
+		fmt.Printf("Session paused for user: %s\n", args[0])
 	},
 }
 
