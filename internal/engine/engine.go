@@ -1,0 +1,264 @@
+package engine
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/SoarinFerret/SessionWarden/internal/config"
+	"github.com/SoarinFerret/SessionWarden/internal/state"
+	"github.com/godbus/dbus/v5"
+)
+
+// Engine monitors active sessions and enforces time limits
+type Engine struct {
+	stateMgr *state.Manager
+	config   *config.Config
+	conn     *dbus.Conn
+}
+
+// NewEngine creates a new user engine instance
+func NewEngine(stateMgr *state.Manager, cfg *config.Config) (*Engine, error) {
+	conn, err := dbus.ConnectSystemBus()
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to system bus: %w", err)
+	}
+
+	return &Engine{
+		stateMgr: stateMgr,
+		config:   cfg,
+		conn:     conn,
+	}, nil
+}
+
+// Run starts the periodic checker (runs every minute)
+func (e *Engine) Run(ctx context.Context) error {
+	defer e.conn.Close()
+
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	log.Println("User engine started - monitoring active sessions...")
+
+	// Run immediately on start
+	e.checkSessions()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("User engine shutting down...")
+			return nil
+		case <-ticker.C:
+			e.checkSessions()
+		}
+	}
+}
+
+// checkSessions evaluates all active sessions
+func (e *Engine) checkSessions() {
+	now := time.Now()
+	currentState := e.stateMgr.GetState()
+
+	for username, user := range currentState.Users {
+		// Skip if user is paused or has no active sessions
+		if user.Paused {
+			continue
+		}
+
+		// Get user configuration
+		userConfig, exists := e.config.Users[username]
+		if !exists {
+			continue // No policy for this user
+		}
+
+		// Skip if user is not enabled
+		if userConfig.Enabled != nil && !*userConfig.Enabled {
+			continue
+		}
+
+		// Check if user has active sessions
+		activeSession := user.GetActiveSession()
+		if activeSession == nil {
+			continue
+		}
+
+		// Calculate time used and time remaining
+		timeUsedSeconds := user.GetTimeUsed()
+		dailyLimitSeconds := int64(time.Duration(userConfig.DailyLimit).Seconds())
+
+		// Add extra time from overrides
+		for _, override := range user.Overrides {
+			if !override.IsExpired(now) && override.ExtraTime > 0 {
+				dailyLimitSeconds += int64(override.ExtraTime * 60) // ExtraTime is in minutes
+			}
+		}
+
+		// Skip if no daily limit is set
+		if dailyLimitSeconds <= 0 {
+			continue
+		}
+
+		timeRemainingSeconds := dailyLimitSeconds - timeUsedSeconds
+
+		// Check if time has run out
+		if timeRemainingSeconds <= 0 {
+			log.Printf("User %s has exceeded daily limit - locking session %s", username, activeSession.SessionId)
+			if err := e.lockSession(username, activeSession.SessionId, userConfig); err != nil {
+				log.Printf("Failed to lock session for %s: %v", username, err)
+			}
+			continue
+		}
+
+		// Send notifications based on notify_before configuration
+		e.sendNotifications(username, activeSession.SessionId, timeRemainingSeconds, userConfig.NotifyBefore)
+	}
+
+	// Update heartbeat
+	e.stateMgr.Heartbeat()
+}
+
+// sendNotifications sends desktop notifications to users when time is running low
+func (e *Engine) sendNotifications(username, sessionID string, timeRemainingSeconds int64, notifyBefore []config.Duration) {
+	if len(notifyBefore) == 0 {
+		return
+	}
+
+	timeRemaining := time.Duration(timeRemainingSeconds) * time.Second
+
+	for _, notifyDuration := range notifyBefore {
+		notifyAt := time.Duration(notifyDuration)
+
+		// Check if we should notify (within 1 minute window to account for check interval)
+		if timeRemaining <= notifyAt && timeRemaining > (notifyAt-time.Minute) {
+			message := formatTimeRemaining(timeRemaining)
+			if err := e.sendDesktopNotification(username, sessionID, message); err != nil {
+				log.Printf("Failed to send notification to %s: %v", username, err)
+			} else {
+				log.Printf("Sent notification to %s: %s remaining", username, message)
+			}
+		}
+	}
+}
+
+// formatTimeRemaining formats duration into human-readable string
+func formatTimeRemaining(d time.Duration) string {
+	hours := int(d.Hours())
+	minutes := int(d.Minutes()) % 60
+
+	if hours > 0 {
+		return fmt.Sprintf("%d hour(s) %d minute(s)", hours, minutes)
+	}
+	return fmt.Sprintf("%d minute(s)", minutes)
+}
+
+// sendDesktopNotification sends a notification to the user's desktop
+func (e *Engine) sendDesktopNotification(username, sessionID, message string) error {
+	// Get the user's session bus address from loginctl
+	sessionBusAddr, err := e.getSessionBusAddress(sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get session bus address: %w", err)
+	}
+
+	// Connect to the user's session bus
+	userConn, err := dbus.Dial(sessionBusAddr)
+	if err != nil {
+		return fmt.Errorf("failed to connect to user session bus: %w", err)
+	}
+	defer userConn.Close()
+
+	if err := userConn.Auth(nil); err != nil {
+		return fmt.Errorf("failed to authenticate: %w", err)
+	}
+
+	if err := userConn.Hello(); err != nil {
+		return fmt.Errorf("failed to send hello: %w", err)
+	}
+
+	// Send notification via org.freedesktop.Notifications
+	obj := userConn.Object("org.freedesktop.Notifications", "/org/freedesktop/Notifications")
+	call := obj.Call("org.freedesktop.Notifications.Notify", 0,
+		"SessionWarden",              // app_name
+		uint32(0),                    // replaces_id
+		"dialog-warning",             // app_icon
+		"Session Time Warning",       // summary
+		fmt.Sprintf("You have %s of session time remaining", message), // body
+		[]string{},                   // actions
+		map[string]dbus.Variant{      // hints
+			"urgency": dbus.MakeVariant(byte(1)), // normal urgency
+		},
+		int32(10000),                 // expire_timeout (10 seconds)
+	)
+
+	if call.Err != nil {
+		return fmt.Errorf("failed to send notification: %w", call.Err)
+	}
+
+	return nil
+}
+
+// getSessionBusAddress retrieves the D-Bus session address for a loginctl session
+func (e *Engine) getSessionBusAddress(sessionID string) (string, error) {
+	obj := e.conn.Object("org.freedesktop.login1", dbus.ObjectPath("/org/freedesktop/login1/session/"+sessionID))
+
+	variant, err := obj.GetProperty("org.freedesktop.login1.Session.Display")
+	if err != nil {
+		return "", fmt.Errorf("failed to get Display property: %w", err)
+	}
+
+	// Try to get the DBUS_SESSION_BUS_ADDRESS environment variable from the session
+	call := obj.Call("org.freedesktop.DBus.Properties.Get", 0,
+		"org.freedesktop.login1.Session",
+		"Name",
+	)
+	if call.Err != nil {
+		return "", fmt.Errorf("failed to get session Name: %w", call.Err)
+	}
+
+	var username dbus.Variant
+	if err := call.Store(&username); err != nil {
+		return "", fmt.Errorf("failed to parse Name: %w", err)
+	}
+
+	// For now, use a simple heuristic - most desktop sessions expose their bus on a standard path
+	// A more robust implementation would read from /proc/<session-leader-pid>/environ
+	displayValue := variant.Value().(string)
+	if displayValue == "" {
+		return "", fmt.Errorf("session has no display set")
+	}
+
+	// Get session leader PID to find the session bus address
+	pidVariant, err := obj.GetProperty("org.freedesktop.login1.Session.Leader")
+	if err != nil {
+		return "", fmt.Errorf("failed to get Leader property: %w", err)
+	}
+
+	pid := pidVariant.Value().(uint32)
+
+	// Read DBUS_SESSION_BUS_ADDRESS from /proc/<pid>/environ
+	busAddr, err := getEnvFromProc(int(pid), "DBUS_SESSION_BUS_ADDRESS")
+	if err != nil {
+		return "", fmt.Errorf("failed to get session bus address from process: %w", err)
+	}
+
+	return busAddr, nil
+}
+
+// lockSession locks a user session using loginctl
+func (e *Engine) lockSession(username, sessionID string, userConfig config.UserConfig) error {
+	// Check if we should lock or just log
+	if userConfig.LockScreen != nil && !*userConfig.LockScreen {
+		log.Printf("Lock screen disabled for %s - session would be locked but policy says no", username)
+		return nil
+	}
+
+	obj := e.conn.Object("org.freedesktop.login1", "/org/freedesktop/login1")
+	call := obj.Call("org.freedesktop.login1.Manager.LockSession", 0, sessionID)
+
+	if call.Err != nil {
+		return fmt.Errorf("failed to lock session %s: %w", sessionID, call.Err)
+	}
+
+	log.Printf("Successfully locked session %s for user %s", sessionID, username)
+	return nil
+}

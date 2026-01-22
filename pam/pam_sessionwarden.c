@@ -159,12 +159,13 @@ static bool check_login_allowed(DBusConnection *conn, pam_handle_t *pamh, const 
     return allowed;
 }
 
-PAM_EXTERN int pam_sm_acct_mgmt (pam_handle_t *pamh, int flags,
-                                   int argc, const char **argv) {
+/* Common implementation for both auth and account management */
+static int sessionwarden_check(pam_handle_t *pamh, const char *phase) {
+    pam_syslog(pamh, LOG_NOTICE, "sessionwarden called for %s", phase);
 
-    pam_syslog(pamh, LOG_NOTICE, "sessionwarden called for account management");
-    // write to /tmp/sessionwarden_pam.log for debugging
-    debug_log(pamh, "pam_sm_acct_mgmt called");
+    char debug_msg[256];
+    snprintf(debug_msg, sizeof(debug_msg), "sessionwarden check called in %s phase", phase);
+    debug_log(pamh, debug_msg);
 
     const char *user = NULL;
     pam_get_user(pamh, &user, NULL);
@@ -174,17 +175,16 @@ PAM_EXTERN int pam_sm_acct_mgmt (pam_handle_t *pamh, int flags,
     }
 
     // check if user is in wheel or sudo group
-    // if so, allow login without checking
-    // (this is to allow root and sudo users to always login)
+    // if so, allow without checking
+    // (this is to allow root and sudo users to always login/unlock)
     if (user_in_any_group(user)) {
-        debug_log(pamh, "User is in bypass group, allowing login");
+        debug_log(pamh, "User is in bypass group, allowing");
         return PAM_SUCCESS;
     }
 
-
-    // if username is root, allow login without checking
+    // if username is root, allow without checking
     if (strcmp(user, "root") == 0) {
-        debug_log(pamh, "User is root, allowing login");
+        debug_log(pamh, "User is root, allowing");
         return PAM_SUCCESS;
     }
 
@@ -196,11 +196,35 @@ PAM_EXTERN int pam_sm_acct_mgmt (pam_handle_t *pamh, int flags,
 
     bool allowed = check_login_allowed(conn, pamh, user);
     if (!allowed) {
-        debug_log(pamh, "Login denied by sessionwarden");
-        pam_syslog(pamh, LOG_NOTICE, "sessionwarden denied login for %s", user);
+        snprintf(debug_msg, sizeof(debug_msg), "Access denied by sessionwarden for %s", user);
+        debug_log(pamh, debug_msg);
+        pam_syslog(pamh, LOG_NOTICE, "sessionwarden denied access for %s", user);
         return PAM_PERM_DENIED;
     }
-    debug_log(pamh, "Login allowed by sessionwarden");
+
+    snprintf(debug_msg, sizeof(debug_msg), "Access allowed by sessionwarden for %s", user);
+    debug_log(pamh, debug_msg);
 
     return PAM_SUCCESS;
+}
+
+PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags,
+                                   int argc, const char **argv) {
+    // Called during auth phase (login AND screen unlock)
+    // Does NOT verify password - that's pam_unix.so's job
+    // Only checks if user should be allowed based on time limits
+    return sessionwarden_check(pamh, "authentication");
+}
+
+PAM_EXTERN int pam_sm_setcred(pam_handle_t *pamh, int flags,
+                              int argc, const char **argv) {
+    // Required when implementing pam_sm_authenticate
+    // We don't actually need to set any credentials, just return success
+    return PAM_SUCCESS;
+}
+
+PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags,
+                                   int argc, const char **argv) {
+    // Called during account management phase (login only, not unlock)
+    return sessionwarden_check(pamh, "account management");
 }

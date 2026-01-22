@@ -140,7 +140,16 @@ func TestUser_GetTimeUsed(t *testing.T) {
 
 func TestUser_OverrideAllowedHours(t *testing.T) {
 	u := &User{}
-	u.AddOverride(NewAllowedHoursOverride("", config.TimeRange{Start: time.Now().Add(-1 * time.Hour), End: time.Now().Add(1 * time.Hour)}, time.Time{}))
+
+	// Create a fixed time range: 09:00-17:00 (9 AM to 5 PM)
+	// Parse times to get proper time.Time values with hour/minute set
+	start, _ := time.Parse("15:04", "09:00")
+	end, _ := time.Parse("15:04", "17:00")
+
+	// Set expiration to tomorrow (won't expire during test)
+	expiresAt := time.Now().Add(24 * time.Hour)
+
+	u.AddOverride(NewAllowedHoursOverride("", config.TimeRange{Start: start, End: end}, expiresAt))
 
 	if len(u.Overrides) != 1 {
 		t.Errorf("Expected 1 override, got %d", len(u.Overrides))
@@ -150,12 +159,16 @@ func TestUser_OverrideAllowedHours(t *testing.T) {
 		t.Errorf("Expected AllowedHoursOverrideIsSet to be true")
 	}
 
-	if u.AllowedHoursOverrideWithinRange(time.Now()) != true {
-		t.Errorf("Expected AllowedHoursOverrideWithinRange to be true")
+	// Test time within range (12:00 PM / noon)
+	testTimeInRange := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+	if u.AllowedHoursOverrideWithinRange(testTimeInRange) != true {
+		t.Errorf("Expected AllowedHoursOverrideWithinRange to be true for 12:00 PM")
 	}
 
-	if u.AllowedHoursOverrideWithinRange(time.Now().Add(12*time.Hour)) == true {
-		t.Errorf("Expected AllowedHoursOverrideWithinRange to be false")
+	// Test time outside range (20:00 / 8 PM)
+	testTimeOutOfRange := time.Date(2024, 1, 1, 20, 0, 0, 0, time.UTC)
+	if u.AllowedHoursOverrideWithinRange(testTimeOutOfRange) == true {
+		t.Errorf("Expected AllowedHoursOverrideWithinRange to be false for 8:00 PM")
 	}
 
 }

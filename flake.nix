@@ -33,6 +33,7 @@
               services.xserver.desktopManager.gnome.enable = true;
               services.xserver.displayManager.gdm.enable = true;
               services.xserver.displayManager.gdm.wayland = true;
+              time.timeZone = "America/Chicago";
               users.users.root.password = "nixos";
               users.users.nixos = {
                 isNormalUser = true;
@@ -43,9 +44,14 @@
                 virtualisation = {
                   memorySize = 4096;
                   cores = 4;
+                  # Forward SSH port: host port 2222 -> guest port 22
+                  forwardPorts = [
+                    { from = "host"; host.port = 2222; guest.port = 22; }
+                  ];
                 };
               };
               services.openssh.enable = true;
+              services.openssh.permitRootLogin = "yes";
 
               #### SystemD service
               systemd.services.sessionwardend = {
@@ -67,13 +73,18 @@
                 "L+ /lib/security/pam_sessionwarden.so - - - - ${pam_sessionwarden}/lib/security/pam_sessionwarden.so"
               ];
 
-              # Add to the login PAM stack (repeat for other services as needed)
+              # Add to the login PAM stack
               security.pam.services.login.rules.account.sessionwarden = {
                 enable = true;
                 order = config.security.pam.services.login.rules.account.unix.order - 10;
                 control = "required";
                 modulePath = "/lib/security/pam_sessionwarden.so";
-
+              };
+              security.pam.services.login.rules.auth.sessionwarden = {
+                enable = true;
+                order = config.security.pam.services.login.rules.auth.unix.order - 400;
+                control = "required";
+                modulePath = "/lib/security/pam_sessionwarden.so";
               };
 
               # write file to /etc/sessionwarden/config.toml
