@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/SoarinFerret/SessionWarden/internal/config"
+	"github.com/SoarinFerret/SessionWarden/internal/engine"
 	"github.com/SoarinFerret/SessionWarden/internal/ipc"
 	"github.com/SoarinFerret/SessionWarden/internal/loginctl"
 	"github.com/SoarinFerret/SessionWarden/internal/state"
@@ -62,6 +63,20 @@ func main() {
 		log.Println("Opening system D-Bus service...")
 		if err := serveSessionWarden(ctx, stateMgr, config, true); err != nil {
 			log.Println("sessionwarden service error:", err)
+		}
+	}()
+
+	// Start the user engine (periodic session checker)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		userEngine, err := engine.NewEngine(stateMgr, config)
+		if err != nil {
+			log.Println("Failed to create user engine:", err)
+			return
+		}
+		if err := userEngine.Run(ctx); err != nil {
+			log.Println("user engine error:", err)
 		}
 	}()
 
