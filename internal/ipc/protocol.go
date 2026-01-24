@@ -22,6 +22,7 @@ const (
 // Engine interface to avoid circular dependency
 type Engine interface {
 	LockUserSession(username string) error
+	SendNotification(username, sessionPath, message string) error
 }
 
 type SessionManager struct {
@@ -215,6 +216,33 @@ func (s *SessionManager) RemoveOverride(user string, index int) *dbus.Error {
 	// Persist the change
 	if err := s.Manager.Save(); err != nil {
 		return dbus.MakeFailedError(fmt.Errorf("failed to save state: %w", err))
+	}
+
+	return nil
+}
+
+func (s *SessionManager) SendNotification(user string, message string) *dbus.Error {
+	log.Println("SendNotification called via D-Bus for", user, "message:", message)
+
+	st := s.Manager.GetState()
+	u, err := st.GetUser(user)
+	if err != nil {
+		return dbus.MakeFailedError(fmt.Errorf("user not found: %w", err))
+	}
+
+	// Get the user's active session
+	activeSession := u.GetActiveSession()
+	if activeSession == nil {
+		return dbus.MakeFailedError(fmt.Errorf("no active session for user %s", user))
+	}
+
+	// Use the Engine to send the notification
+	if s.Engine == nil {
+		return dbus.MakeFailedError(fmt.Errorf("engine not available"))
+	}
+
+	if err := s.Engine.SendNotification(user, activeSession.SessionId, message); err != nil {
+		return dbus.MakeFailedError(fmt.Errorf("failed to send notification: %w", err))
 	}
 
 	return nil

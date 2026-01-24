@@ -182,6 +182,11 @@ func (e *Engine) sendDesktopNotification(username, sessionPath, message string) 
 	return nil
 }
 
+// SendNotification sends a custom notification to a user (public method for IPC)
+func (e *Engine) SendNotification(username, sessionPath, message string) error {
+	return e.sendDesktopNotification(username, sessionPath, message)
+}
+
 // getSessionBusAddress retrieves the D-Bus session address for a loginctl session
 // sessionPath should be the full D-Bus path (e.g., "/org/freedesktop/login1/session/_00")
 func (e *Engine) getSessionBusAddress(sessionPath string) (string, error) {
