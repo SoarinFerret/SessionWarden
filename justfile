@@ -16,5 +16,5 @@ run EXE:
 ## `just vm -nographic` to run without a GUI
 vm *args:
     rm nixos.qcow2 || true
-    nix build .#nixosConfigurations.x86_64-linux.vm.config.system.build.vm
+    nix build .#nixosConfigurations.vm.config.system.build.vm
     ./result/bin/run-nixos-vm {{args}}
