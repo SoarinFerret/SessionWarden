@@ -39,9 +39,46 @@ func TestPermitLogin_DefaultPolicy(t *testing.T) {
 	st := state.State{Users: map[string]session.User{}}
 	cfg := exampleConfig()
 	now := time.Date(2024, 6, 3, 10, 0, 0, 0, time.UTC) // Monday at 10:00
-	// No user config, should permit
+	// No user config and default.enabled = false, should permit
 	if !PermitLogin("bobby", st, cfg, now) {
-		t.Errorf("expected PermitLogin to allow login for user with no config")
+		t.Errorf("expected PermitLogin to allow login for user with no config when default.enabled = false")
+	}
+}
+
+func TestPermitLogin_DefaultPolicyEnabled(t *testing.T) {
+	st := state.State{Users: map[string]session.User{}}
+	tomlData := `
+[default]
+daily_limit = "2h"
+allowed_hours = "09:00-17:00"
+weekend_hours = "10:00-14:00"
+enabled = true
+`
+	cfg, _ := config.LoadConfigFromBytes([]byte(tomlData))
+
+	// User not in config but default.enabled = true, should apply default restrictions
+	// Monday at 10:00 - within allowed hours, should permit
+	now := time.Date(2024, 6, 3, 10, 0, 0, 0, time.UTC)
+	if !PermitLogin("bobby", st, cfg, now) {
+		t.Errorf("expected PermitLogin to allow login during allowed hours with default config")
+	}
+
+	// Monday at 23:00 - outside allowed hours, should deny
+	now = time.Date(2024, 6, 3, 23, 0, 0, 0, time.UTC)
+	if PermitLogin("bobby", st, cfg, now) {
+		t.Errorf("expected PermitLogin to deny login outside allowed hours with default config")
+	}
+
+	// Saturday at 11:00 - within weekend hours, should permit
+	now = time.Date(2024, 6, 1, 11, 0, 0, 0, time.UTC)
+	if !PermitLogin("bobby", st, cfg, now) {
+		t.Errorf("expected PermitLogin to allow login during weekend hours with default config")
+	}
+
+	// Saturday at 15:00 - outside weekend hours, should deny
+	now = time.Date(2024, 6, 1, 15, 0, 0, 0, time.UTC)
+	if PermitLogin("bobby", st, cfg, now) {
+		t.Errorf("expected PermitLogin to deny login outside weekend hours with default config")
 	}
 }
 
@@ -109,10 +146,31 @@ func TestGetTimeRemaining_NoPolicy(t *testing.T) {
 	cfg := exampleConfig()
 	now := time.Date(2024, 6, 3, 10, 0, 0, 0, time.UTC) // Monday at 10:00
 
-	// User with no config should have unlimited time
+	// User with no config and default.enabled = false should have unlimited time
 	remaining := GetTimeRemaining("bobby", st, cfg, now)
 	if remaining != 9223372036854775807 { // math.MaxInt64
 		t.Errorf("expected unlimited time for user with no config, got %d", remaining)
+	}
+}
+
+func TestGetTimeRemaining_DefaultPolicyEnabled(t *testing.T) {
+	st := state.State{Users: map[string]session.User{"bobby": {}}}
+	tomlData := `
+[default]
+daily_limit = "2h"
+allowed_hours = "09:00-17:00"
+weekend_hours = "10:00-14:00"
+enabled = true
+`
+	cfg, _ := config.LoadConfigFromBytes([]byte(tomlData))
+
+	// User not explicitly in config but default.enabled = true
+	// Should apply default 2h daily limit
+	now := time.Date(2024, 6, 3, 10, 0, 0, 0, time.UTC) // Monday at 10:00, allowed hours 09:00-17:00
+	remaining := GetTimeRemaining("bobby", st, cfg, now)
+	expected := int64(2 * 60 * 60) // 2 hours in seconds
+	if remaining != expected {
+		t.Errorf("expected %d seconds remaining with default config, got %d", expected, remaining)
 	}
 }
 

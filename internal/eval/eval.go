@@ -16,8 +16,13 @@ func PermitLogin(username string, state state.State, config config.Config, now t
 	// get user config
 	userConfig, exists := config.Users[username]
 	if !exists {
-		// No specific config for user, apply default policy
-		return true
+		// No specific config for user
+		// If default is enabled, use default config; otherwise allow
+		if config.Default.Enabled != nil && *config.Default.Enabled {
+			userConfig = config.Default
+		} else {
+			return true
+		}
 	}
 
 	userNotFound := false
@@ -86,8 +91,13 @@ func GetTimeRemaining(username string, state state.State, cfg config.Config, now
 	// Get user config
 	userConfig, exists := cfg.Users[username]
 	if !exists {
-		// No policy for this user - unlimited time
-		return math.MaxInt64
+		// No specific config for user
+		// If default is enabled, use default config; otherwise unlimited time
+		if cfg.Default.Enabled != nil && *cfg.Default.Enabled {
+			userConfig = cfg.Default
+		} else {
+			return math.MaxInt64
+		}
 	}
 
 	// Get user state
