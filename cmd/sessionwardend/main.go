@@ -211,16 +211,16 @@ func handleNotificationSignal(conn *dbus.Conn, sig *dbus.Signal, currentUsername
 	// Send desktop notification via org.freedesktop.Notifications
 	obj := conn.Object("org.freedesktop.Notifications", "/org/freedesktop/Notifications")
 	call := obj.Call("org.freedesktop.Notifications.Notify", 0,
-		"SessionWarden",        // app_name
-		uint32(0),              // replaces_id
-		"dialog-warning",       // app_icon
-		title,                  // summary
-		message,                // body
-		[]string{},             // actions
+		"SessionWarden",  // app_name
+		uint32(0),        // replaces_id
+		"dialog-warning", // app_icon
+		title,            // summary
+		message,          // body
+		[]string{},       // actions
 		map[string]dbus.Variant{ // hints
 			"urgency": dbus.MakeVariant(byte(1)), // normal urgency
 		},
-		int32(10000), // expire_timeout (10 seconds)
+		int32(30000), // expire_timeout (30 seconds)
 	)
 
 	if call.Err != nil {
