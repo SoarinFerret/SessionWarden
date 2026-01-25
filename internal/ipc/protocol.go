@@ -29,6 +29,28 @@ type SessionManager struct {
 	Manager *state.Manager
 	Config  *config.Config
 	Engine  Engine
+	conn    *dbus.Conn // D-Bus connection for emitting signals
+}
+
+// SetConnection sets the D-Bus connection for signal emission
+func (s *SessionManager) SetConnection(conn *dbus.Conn) {
+	s.conn = conn
+}
+
+// EmitNotificationSignal sends a notification signal on the system bus
+// This signal will be picked up by user-mode sessionwardend instances
+// The username parameter allows user-mode instances to filter notifications
+func (s *SessionManager) EmitNotificationSignal(username, title, message string) error {
+	if s.conn == nil {
+		return fmt.Errorf("D-Bus connection not set")
+	}
+
+	if err := s.conn.Emit(dbus.ObjectPath(ObjectPath), InterfaceName+".NotificationSignal", username, title, message); err != nil {
+		return fmt.Errorf("failed to emit notification signal: %w", err)
+	}
+
+	log.Printf("Emitted notification signal for user %s: %s - %s", username, title, message)
+	return nil
 }
 
 func (s *SessionManager) Ping() (string, *dbus.Error) {

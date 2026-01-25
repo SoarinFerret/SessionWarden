@@ -12,11 +12,17 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
+// NotificationEmitter is an interface for sending notifications
+type NotificationEmitter interface {
+	EmitNotificationSignal(username, title, message string) error
+}
+
 // Engine monitors active sessions and enforces time limits
 type Engine struct {
-	stateMgr *state.Manager
-	config   *config.Config
-	conn     *dbus.Conn
+	stateMgr         *state.Manager
+	config           *config.Config
+	conn             *dbus.Conn
+	notificationEmit NotificationEmitter
 }
 
 // NewEngine creates a new user engine instance
@@ -31,6 +37,11 @@ func NewEngine(stateMgr *state.Manager, cfg *config.Config) (*Engine, error) {
 		config:   cfg,
 		conn:     conn,
 	}, nil
+}
+
+// SetNotificationEmitter sets the notification emitter for sending notifications
+func (e *Engine) SetNotificationEmitter(emitter NotificationEmitter) {
+	e.notificationEmit = emitter
 }
 
 // Run starts the periodic checker (runs every minute)
@@ -137,102 +148,26 @@ func formatTimeRemaining(d time.Duration) string {
 	return fmt.Sprintf("%d minute(s)", minutes)
 }
 
-// sendDesktopNotification sends a notification to the user's desktop
+// sendDesktopNotification sends a notification signal via D-Bus
 func (e *Engine) sendDesktopNotification(username, sessionPath, message string) error {
-	// Get the user's session bus address from loginctl
-	sessionBusAddr, err := e.getSessionBusAddress(sessionPath)
-	if err != nil {
-		return fmt.Errorf("failed to get session bus address: %w", err)
+	if e.notificationEmit == nil {
+		return fmt.Errorf("notification emitter not set")
 	}
 
-	// Connect to the user's session bus
-	userConn, err := dbus.Dial(sessionBusAddr)
-	if err != nil {
-		return fmt.Errorf("failed to connect to user session bus: %w", err)
-	}
-	defer userConn.Close()
+	title := "Session Time Warning"
+	body := fmt.Sprintf("You have %s of session time remaining", message)
 
-	if err := userConn.Auth(nil); err != nil {
-		return fmt.Errorf("failed to authenticate: %w", err)
-	}
-
-	if err := userConn.Hello(); err != nil {
-		return fmt.Errorf("failed to send hello: %w", err)
-	}
-
-	// Send notification via org.freedesktop.Notifications
-	obj := userConn.Object("org.freedesktop.Notifications", "/org/freedesktop/Notifications")
-	call := obj.Call("org.freedesktop.Notifications.Notify", 0,
-		"SessionWarden",        // app_name
-		uint32(0),              // replaces_id
-		"dialog-warning",       // app_icon
-		"Session Time Warning", // summary
-		fmt.Sprintf("You have %s of session time remaining", message), // body
-		[]string{}, // actions
-		map[string]dbus.Variant{ // hints
-			"urgency": dbus.MakeVariant(byte(1)), // normal urgency
-		},
-		int32(10000), // expire_timeout (10 seconds)
-	)
-
-	if call.Err != nil {
-		return fmt.Errorf("failed to send notification: %w", call.Err)
-	}
-
-	return nil
+	return e.notificationEmit.EmitNotificationSignal(username, title, body)
 }
 
 // SendNotification sends a custom notification to a user (public method for IPC)
 func (e *Engine) SendNotification(username, sessionPath, message string) error {
-	return e.sendDesktopNotification(username, sessionPath, message)
-}
-
-// getSessionBusAddress retrieves the D-Bus session address for a loginctl session
-// sessionPath should be the full D-Bus path (e.g., "/org/freedesktop/login1/session/_00")
-func (e *Engine) getSessionBusAddress(sessionPath string) (string, error) {
-	obj := e.conn.Object("org.freedesktop.login1", dbus.ObjectPath(sessionPath))
-
-	variant, err := obj.GetProperty("org.freedesktop.login1.Session.Display")
-	if err != nil {
-		return "", fmt.Errorf("failed to get Display property: %w", err)
+	if e.notificationEmit == nil {
+		return fmt.Errorf("notification emitter not set")
 	}
 
-	// Try to get the DBUS_SESSION_BUS_ADDRESS environment variable from the session
-	call := obj.Call("org.freedesktop.DBus.Properties.Get", 0,
-		"org.freedesktop.login1.Session",
-		"Name",
-	)
-	if call.Err != nil {
-		return "", fmt.Errorf("failed to get session Name: %w", call.Err)
-	}
-
-	var username dbus.Variant
-	if err := call.Store(&username); err != nil {
-		return "", fmt.Errorf("failed to parse Name: %w", err)
-	}
-
-	// For now, use a simple heuristic - most desktop sessions expose their bus on a standard path
-	// A more robust implementation would read from /proc/<session-leader-pid>/environ
-	displayValue := variant.Value().(string)
-	if displayValue == "" {
-		return "", fmt.Errorf("session has no display set")
-	}
-
-	// Get session leader PID to find the session bus address
-	pidVariant, err := obj.GetProperty("org.freedesktop.login1.Session.Leader")
-	if err != nil {
-		return "", fmt.Errorf("failed to get Leader property: %w", err)
-	}
-
-	pid := pidVariant.Value().(uint32)
-
-	// Read DBUS_SESSION_BUS_ADDRESS from /proc/<pid>/environ
-	busAddr, err := getEnvFromProc(int(pid), "DBUS_SESSION_BUS_ADDRESS")
-	if err != nil {
-		return "", fmt.Errorf("failed to get session bus address from process: %w", err)
-	}
-
-	return busAddr, nil
+	title := "SessionWarden"
+	return e.notificationEmit.EmitNotificationSignal(username, title, message)
 }
 
 // LockUserSession locks the active session for a user (public method for IPC)

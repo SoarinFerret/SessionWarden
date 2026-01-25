@@ -28,9 +28,17 @@
           system = "x86_64-linux";
           modules = [
             ({ config, pkgs, ... }: {
-              environment.systemPackages = [ sessionwarden pam_sessionwarden ];
+              environment.systemPackages = [
+                sessionwarden
+                pam_sessionwarden
+                pkgs.gnomeExtensions.fullscreen-notifications
+              ];
               services.xserver.enable = true;
               services.xserver.desktopManager.gnome.enable = true;
+              services.xserver.desktopManager.gnome.extraGSettingsOverrides = ''
+                [org.gnome.shell]
+                enabled-extensions=['fullscreen-notifications@sorrow.about.alice.pm.me']
+              '';
               services.xserver.displayManager.gdm.enable = true;
               services.xserver.displayManager.gdm.wayland = true;
               time.timeZone = "America/Chicago";
@@ -39,6 +47,9 @@
                 isNormalUser = true;
                 password = "nixos";
               };
+
+              # Enable dconf for GNOME extension management
+              programs.dconf.enable = true;
               virtualisation.vmVariant = {
                 # following configuration is added only when building VM with build-vm
                 virtualisation = {
@@ -53,7 +64,7 @@
               services.openssh.enable = true;
               services.openssh.permitRootLogin = "yes";
 
-              #### SystemD service
+              #### SystemD system service (runs as root)
               systemd.services.sessionwardend = {
                 description = "SessionWarden Daemon";
                 wantedBy = [ "multi-user.target" ];
@@ -65,6 +76,20 @@
                   Restart = "on-failure";
                 };
                 # Optionally, add environment variables or dependencies here
+              };
+
+              #### SystemD user service (runs per-user for notifications)
+              systemd.user.services.sessionwardend-user = {
+                description = "SessionWarden User Notification Listener";
+                wantedBy = [ "default.target" ];
+                after = [ "graphical-session.target" ];
+                partOf = [ "graphical-session.target" ];
+                serviceConfig = {
+                  Type = "simple";
+                  ExecStart = "${sessionwarden}/bin/sessionwardend --user";
+                  Restart = "on-failure";
+                  RestartSec = "5s";
+                };
               };
 
               ##### PAM Configuration for SessionWarden #####
