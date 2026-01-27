@@ -21,6 +21,20 @@ func (m *Manager) HandleLogin(user string, sessionID string) {
 		}
 	}
 
+	// Check if session already exists (e.g., after wake from sleep)
+	if u.IsSessionActive(sessionID) {
+		// Session exists and is active
+		// If it's idle (no active segment), start a new segment
+		s, err := u.GetSessionByID(sessionID)
+		if err == nil && s.IsIdle() {
+			s.AddSegment(time.Now())
+			m.state.Users[user] = *u
+			m.save()
+		}
+		return
+	}
+
+	// Create new session (which automatically creates first segment)
 	u.AddSession(time.Now(), sessionID)
 	m.state.Users[user] = *u
 	m.save()
@@ -53,13 +67,8 @@ func (m *Manager) HandleSleep() {
 }
 
 func (m *Manager) HandleWake() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	//log.Println("System woke up")
-
-	m.state.StartNewSegments()
-	m.save()
+	log.Println("System woke up")
+	// Don't create segments here - wait for actual user interaction (unlock/login)
 }
 
 func (m *Manager) HandleLock(user string, sessionID string) {
