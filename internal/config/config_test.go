@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
@@ -161,4 +162,76 @@ daily_limit = "3h"
 	assert.Equal(t, Duration(3*time.Hour), AppConfig.Users["user1"].DailyLimit)
 	assert.Equal(t, "09:00", AppConfig.Users["user1"].AllowedHours.Start.Format("15:04"))
 	assert.Equal(t, "17:00", AppConfig.Users["user1"].AllowedHours.End.Format("15:04"))
+}
+
+func TestTimeRangeJSON(t *testing.T) {
+	tests := []struct {
+		name        string
+		timeRange   TimeRange
+		expectedJSON string
+	}{
+		{
+			name: "Valid time range",
+			timeRange: TimeRange{
+				Start: time.Date(0, 1, 1, 9, 0, 0, 0, time.UTC),
+				End:   time.Date(0, 1, 1, 17, 30, 0, 0, time.UTC),
+			},
+			expectedJSON: `"09:00-17:30"`,
+		},
+		{
+			name: "Empty time range",
+			timeRange: TimeRange{},
+			expectedJSON: `null`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name + " Marshal", func(t *testing.T) {
+			data, err := json.Marshal(tt.timeRange)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectedJSON, string(data))
+		})
+
+		t.Run(tt.name + " Unmarshal", func(t *testing.T) {
+			var tr TimeRange
+			err := json.Unmarshal([]byte(tt.expectedJSON), &tr)
+			assert.NoError(t, err)
+			if tt.expectedJSON == `null` {
+				assert.True(t, tr.IsEmpty())
+			} else {
+				assert.Equal(t, tt.timeRange.Start.Hour(), tr.Start.Hour())
+				assert.Equal(t, tt.timeRange.Start.Minute(), tr.Start.Minute())
+				assert.Equal(t, tt.timeRange.End.Hour(), tr.End.Hour())
+				assert.Equal(t, tt.timeRange.End.Minute(), tr.End.Minute())
+			}
+		})
+	}
+}
+
+func TestTimeRangeJSONRoundTrip(t *testing.T) {
+	// Test with a struct that contains TimeRange (like Override)
+	type TestStruct struct {
+		AllowedHours TimeRange `json:"allowed_hours"`
+	}
+
+	original := TestStruct{
+		AllowedHours: TimeRange{
+			Start: time.Date(0, 1, 1, 9, 0, 0, 0, time.UTC),
+			End:   time.Date(0, 1, 1, 23, 59, 0, 0, time.UTC),
+		},
+	}
+
+	// Marshal to JSON
+	data, err := json.Marshal(original)
+	assert.NoError(t, err)
+	assert.Contains(t, string(data), `"09:00-23:59"`)
+
+	// Unmarshal back
+	var decoded TestStruct
+	err = json.Unmarshal(data, &decoded)
+	assert.NoError(t, err)
+	assert.Equal(t, original.AllowedHours.Start.Hour(), decoded.AllowedHours.Start.Hour())
+	assert.Equal(t, original.AllowedHours.Start.Minute(), decoded.AllowedHours.Start.Minute())
+	assert.Equal(t, original.AllowedHours.End.Hour(), decoded.AllowedHours.End.Hour())
+	assert.Equal(t, original.AllowedHours.End.Minute(), decoded.AllowedHours.End.Minute())
 }

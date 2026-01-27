@@ -60,6 +60,30 @@ func (tr *TimeRange) UnmarshalText(text []byte) error {
 	return nil
 }
 
+// MarshalJSON serializes TimeRange as a string in "HH:MM-HH:MM" format
+func (tr TimeRange) MarshalJSON() ([]byte, error) {
+	if tr.IsEmpty() {
+		return []byte("null"), nil
+	}
+	s := fmt.Sprintf("\"%02d:%02d-%02d:%02d\"",
+		tr.Start.Hour(), tr.Start.Minute(),
+		tr.End.Hour(), tr.End.Minute())
+	return []byte(s), nil
+}
+
+// UnmarshalJSON deserializes TimeRange from a string in "HH:MM-HH:MM" format
+func (tr *TimeRange) UnmarshalJSON(data []byte) error {
+	// Handle null
+	if string(data) == "null" {
+		tr.Start = time.Time{}
+		tr.End = time.Time{}
+		return nil
+	}
+	// Remove quotes
+	str := strings.Trim(string(data), "\"")
+	return tr.UnmarshalText([]byte(str))
+}
+
 type Duration time.Duration
 
 func (d *Duration) UnmarshalText(text []byte) error {
