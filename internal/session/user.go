@@ -77,12 +77,40 @@ func (u *User) Resume() {
 	u.Paused = false
 }
 
+// GetSessionsForDay returns all sessions that started on the given day
+func (u *User) GetSessionsForDay(day time.Time) []SessionRecord {
+	var sessions []SessionRecord
+	for _, session := range u.Sessions {
+		// Check if session started on the same day (ignoring time)
+		if isSameDay(session.StartTime, day) {
+			sessions = append(sessions, session)
+		}
+	}
+	return sessions
+}
+
+// GetTimeUsed returns the total time used for sessions that started today
 func (u *User) GetTimeUsed() int64 {
+	return u.GetTimeUsedForDay(time.Now())
+}
+
+// GetTimeUsedForDay returns the total time used for sessions that started on the given day
+func (u *User) GetTimeUsedForDay(day time.Time) int64 {
 	var totalDuration int64
 	for _, session := range u.Sessions {
-		totalDuration += session.Duration()
+		// Only count sessions from the specified day
+		if isSameDay(session.StartTime, day) {
+			totalDuration += session.Duration()
+		}
 	}
 	return totalDuration
+}
+
+// isSameDay checks if two times are on the same calendar day
+func isSameDay(t1, t2 time.Time) bool {
+	y1, m1, d1 := t1.Date()
+	y2, m2, d2 := t2.Date()
+	return y1 == y2 && m1 == m2 && d1 == d2
 }
 
 func (u *User) AllowedHoursOverrideIsSet() bool {
@@ -114,4 +142,15 @@ func (u *User) AllowedHoursOverrideWithinRange(now time.Time) bool {
 
 func (u *User) AddOverride(o Override) {
 	u.Overrides = append(u.Overrides, o)
+}
+
+// RemoveOldSessions removes all sessions that did not start today
+func (u *User) RemoveOldSessions(now time.Time) {
+	var currentSessions []SessionRecord
+	for _, session := range u.Sessions {
+		if isSameDay(session.StartTime, now) {
+			currentSessions = append(currentSessions, session)
+		}
+	}
+	u.Sessions = currentSessions
 }

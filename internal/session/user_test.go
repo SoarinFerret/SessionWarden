@@ -188,3 +188,85 @@ func TestUser_OverrideDuration(t *testing.T) {
 
 
 }
+
+func TestUser_GetTimeUsedOnlyCountsTodaySessions(t *testing.T) {
+	u := &User{}
+	now := time.Now()
+	yesterday := now.Add(-24 * time.Hour)
+
+	// Add a session from yesterday (1 hour duration)
+	u.AddSession(yesterday, "yesterday1")
+	u.EndSession(yesterday.Add(1*time.Hour), "yesterday1")
+
+	// Add a session from today (30 minutes duration)
+	u.AddSession(now.Add(-30*time.Minute), "today1")
+	u.EndSession(now, "today1")
+
+	// GetTimeUsed should only count today's session (30 minutes = 1800 seconds)
+	timeUsed := u.GetTimeUsed()
+	if timeUsed < 1700 || timeUsed > 1900 { // Allow small margin
+		t.Errorf("GetTimeUsed = %d, want ~1800 (30 minutes)", timeUsed)
+	}
+
+	// GetTimeUsedForDay for yesterday should count only yesterday's session
+	timeUsedYesterday := u.GetTimeUsedForDay(yesterday)
+	if timeUsedYesterday < 3500 || timeUsedYesterday > 3700 { // Allow small margin
+		t.Errorf("GetTimeUsedForDay(yesterday) = %d, want ~3600 (1 hour)", timeUsedYesterday)
+	}
+}
+
+func TestUser_RemoveOldSessions(t *testing.T) {
+	u := &User{}
+	now := time.Now()
+	yesterday := now.Add(-24 * time.Hour)
+	twoDaysAgo := now.Add(-48 * time.Hour)
+
+	// Add sessions from different days
+	u.AddSession(twoDaysAgo, "twoDaysAgo")
+	u.AddSession(yesterday, "yesterday")
+	u.AddSession(now.Add(-1*time.Hour), "today1")
+	u.AddSession(now.Add(-30*time.Minute), "today2")
+
+	// Should have 4 sessions
+	if len(u.Sessions) != 4 {
+		t.Fatalf("Expected 4 sessions before cleanup, got %d", len(u.Sessions))
+	}
+
+	// Remove old sessions
+	u.RemoveOldSessions(now)
+
+	// Should only have today's sessions left
+	if len(u.Sessions) != 2 {
+		t.Errorf("Expected 2 sessions after cleanup, got %d", len(u.Sessions))
+	}
+
+	// Verify the remaining sessions are from today
+	for _, session := range u.Sessions {
+		if !isSameDay(session.StartTime, now) {
+			t.Errorf("Found session from wrong day: %v", session.StartTime)
+		}
+	}
+}
+
+func TestUser_GetSessionsForDay(t *testing.T) {
+	u := &User{}
+	now := time.Now()
+	yesterday := now.Add(-24 * time.Hour)
+
+	// Add sessions from different days
+	u.AddSession(yesterday, "yesterday1")
+	u.AddSession(yesterday.Add(-1*time.Hour), "yesterday2")
+	u.AddSession(now.Add(-1*time.Hour), "today1")
+
+	// Get yesterday's sessions
+	yesterdaySessions := u.GetSessionsForDay(yesterday)
+	if len(yesterdaySessions) != 2 {
+		t.Errorf("Expected 2 sessions for yesterday, got %d", len(yesterdaySessions))
+	}
+
+	// Get today's sessions
+	todaySessions := u.GetSessionsForDay(now)
+	if len(todaySessions) != 1 {
+		t.Errorf("Expected 1 session for today, got %d", len(todaySessions))
+	}
+}

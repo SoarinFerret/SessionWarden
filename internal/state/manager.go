@@ -123,6 +123,12 @@ func (m *Manager) startUpChecks() {
 		}
 	}
 
+	// Remove sessions from previous days
+	for uname, user := range m.state.Users {
+		user.RemoveOldSessions(now)
+		m.state.Users[uname] = user
+	}
+
 	// update heartbeat
 	m.state.HeartBeat = now
 }
@@ -140,6 +146,17 @@ func (m *Manager) CleanupExpiredOverrides() {
 			}
 		}
 		user.Overrides = validEx
+		m.state.Users[uname] = user
+	}
+}
+
+// CleanupOldSessions removes sessions that did not start today for all users
+func (m *Manager) CleanupOldSessions() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now()
+	for uname, user := range m.state.Users {
+		user.RemoveOldSessions(now)
 		m.state.Users[uname] = user
 	}
 }
