@@ -62,6 +62,24 @@ func TestSessionRecord_AddAndEndSegment(t *testing.T) {
 	}
 }
 
+func TestSessionRecord_EndSegmentDoesNotOverwriteEndedSegment(t *testing.T) {
+	s := SessionRecord{}
+	start := time.Now().Add(-2 * time.Hour)
+	end := start.Add(30 * time.Minute)
+	s.AddSegment(start)
+	s.EndSegment(end, "user lock")
+
+	// A later EndSegment (e.g. system sleep after locking) must not
+	// rewrite the segment's end time or reason
+	s.EndSegment(end.Add(1*time.Hour), "system sleep")
+	if !s.Segments[0].EndTime.Equal(end) {
+		t.Errorf("Segment EndTime = %v, want %v (should not be overwritten)", s.Segments[0].EndTime, end)
+	}
+	if s.Segments[0].Reason != "user lock" {
+		t.Errorf("Segment Reason = %v, want 'user lock' (should not be overwritten)", s.Segments[0].Reason)
+	}
+}
+
 func TestSessionRecord_IsIdle(t *testing.T) {
 	s := SessionRecord{}
 	if s.IsIdle() {

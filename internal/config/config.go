@@ -99,9 +99,56 @@ type UserConfig struct {
 	DailyLimit   Duration   `toml:"daily_limit"`
 	AllowedHours TimeRange  `toml:"allowed_hours"`
 	WeekendHours TimeRange  `toml:"weekend_hours"`
+	WeekendDays  []string   `toml:"weekend_days"`
 	NotifyBefore []Duration `toml:"notify_before"`
 	LockScreen   *bool      `toml:"lock_screen"`
 	Enabled      *bool      `toml:"enabled"`
+}
+
+// IsWeekend reports whether t falls on one of the configured weekend days.
+// If weekend_days is not set, Saturday and Sunday are used.
+func (uc *UserConfig) IsWeekend(t time.Time) bool {
+	if len(uc.WeekendDays) == 0 {
+		return t.Weekday() == time.Saturday || t.Weekday() == time.Sunday
+	}
+	for _, day := range uc.WeekendDays {
+		if strings.EqualFold(day, t.Weekday().String()) {
+			return true
+		}
+	}
+	return false
+}
+
+// validWeekday checks that s is a full weekday name (case-insensitive)
+func validWeekday(s string) bool {
+	for d := time.Sunday; d <= time.Saturday; d++ {
+		if strings.EqualFold(s, d.String()) {
+			return true
+		}
+	}
+	return false
+}
+
+// Validate checks config values that cannot be verified during unmarshaling.
+func (c *Config) Validate() error {
+	if err := validateWeekendDays("default", c.Default.WeekendDays); err != nil {
+		return err
+	}
+	for username, userConfig := range c.Users {
+		if err := validateWeekendDays("users."+username, userConfig.WeekendDays); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateWeekendDays(section string, days []string) error {
+	for _, day := range days {
+		if !validWeekday(day) {
+			return fmt.Errorf("invalid weekend_days entry %q in [%s]: expected a weekday name like \"saturday\"", day, section)
+		}
+	}
+	return nil
 }
 
 type Config struct {
@@ -131,6 +178,9 @@ func (c *Config) SetDefault() {
 			if userConfig.WeekendHours == (TimeRange{}) {
 				userConfig.WeekendHours = c.Default.WeekendHours
 			}
+			if userConfig.WeekendDays == nil {
+				userConfig.WeekendDays = c.Default.WeekendDays
+			}
 			if userConfig.NotifyBefore == nil {
 				userConfig.NotifyBefore = c.Default.NotifyBefore
 			}
@@ -158,6 +208,9 @@ func LoadConfigFromFile(path string) (*Config, error) {
 		return nil, err
 	}
 	config.SetDefault()
+	if err := config.Validate(); err != nil {
+		return nil, err
+	}
 	return &config, nil
 }
 
@@ -169,5 +222,8 @@ func LoadConfigFromBytes(data []byte) (Config, error) {
 	}
 
 	config.SetDefault()
+	if err := config.Validate(); err != nil {
+		return config, err
+	}
 	return config, nil
 }

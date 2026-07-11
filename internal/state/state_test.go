@@ -61,6 +61,34 @@ func TestState_GetUserBySession(t *testing.T) {
 	}
 }
 
+func TestState_GetUserBySessionPrefersActiveSession(t *testing.T) {
+	// logind reuses session IDs across reboots, so one user can hold an
+	// ended record with the same ID as another user's active session
+	aliceStart := time.Now().Add(-4 * time.Hour)
+	alice := makeTestUser("dup", aliceStart)
+	alice.EndSession(aliceStart.Add(1*time.Hour), "dup")
+
+	bob := makeTestUser("dup", time.Now().Add(-30*time.Minute))
+
+	st := State{
+		Users: map[string]session.User{
+			"alice": alice,
+			"bob":   bob,
+		},
+	}
+
+	uname, user, err := st.GetUserBySession("dup")
+	if err != nil {
+		t.Fatalf("GetUserBySession returned error: %v", err)
+	}
+	if uname != "bob" {
+		t.Errorf("expected username 'bob' (active session), got %s", uname)
+	}
+	if user == nil || !user.IsSessionActive("dup") {
+		t.Errorf("expected returned user to have active session 'dup'")
+	}
+}
+
 func TestState_EndAllSegmentsAndStartNewSegments(t *testing.T) {
 	start := time.Now().Add(-1 * time.Hour)
 	st := State{

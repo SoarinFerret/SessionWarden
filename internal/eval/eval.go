@@ -37,7 +37,7 @@ func PermitLogin(username string, state state.State, config config.Config, now t
 		}
 	} else {
 		// check allowed hours
-		if now.Weekday() == time.Friday || now.Weekday() == time.Saturday {
+		if userConfig.IsWeekend(now) {
 			if !userConfig.WeekendHours.WithinRange(now) {
 				return false
 			}
@@ -142,7 +142,7 @@ func GetTimeRemaining(username string, state state.State, cfg config.Config, now
 
 	// If no override, use config-based allowed hours
 	if !hasOverride {
-		isWeekend := now.Weekday() == time.Saturday || now.Weekday() == time.Sunday
+		isWeekend := userConfig.IsWeekend(now)
 		if isWeekend && !userConfig.WeekendHours.IsEmpty() {
 			allowedHours = userConfig.WeekendHours
 		} else if !isWeekend && !userConfig.AllowedHours.IsEmpty() {

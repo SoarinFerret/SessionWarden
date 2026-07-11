@@ -64,6 +64,11 @@ func (s *SessionRecord) EndSegment(end time.Time, reason string) {
 		return
 	}
 	lastIndex := len(s.Segments) - 1
+	// only set end time if not already set (don't rewrite history for
+	// segments that ended earlier, e.g. locked before system sleep)
+	if !s.Segments[lastIndex].EndTime.IsZero() {
+		return
+	}
 	s.Segments[lastIndex].EndTime = end
 	s.Segments[lastIndex].Reason = reason
 }

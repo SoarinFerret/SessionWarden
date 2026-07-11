@@ -235,3 +235,58 @@ func TestTimeRangeJSONRoundTrip(t *testing.T) {
 	assert.Equal(t, original.AllowedHours.End.Hour(), decoded.AllowedHours.End.Hour())
 	assert.Equal(t, original.AllowedHours.End.Minute(), decoded.AllowedHours.End.Minute())
 }
+
+func TestUserConfig_IsWeekend(t *testing.T) {
+	saturday := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	sunday := time.Date(2024, 6, 2, 12, 0, 0, 0, time.UTC)
+	friday := time.Date(2024, 5, 31, 12, 0, 0, 0, time.UTC)
+	monday := time.Date(2024, 6, 3, 12, 0, 0, 0, time.UTC)
+
+	// Default: Saturday and Sunday
+	uc := UserConfig{}
+	assert.True(t, uc.IsWeekend(saturday))
+	assert.True(t, uc.IsWeekend(sunday))
+	assert.False(t, uc.IsWeekend(friday))
+	assert.False(t, uc.IsWeekend(monday))
+
+	// Custom weekend days, case-insensitive
+	uc = UserConfig{WeekendDays: []string{"Friday", "saturday"}}
+	assert.True(t, uc.IsWeekend(friday))
+	assert.True(t, uc.IsWeekend(saturday))
+	assert.False(t, uc.IsWeekend(sunday))
+}
+
+func TestLoadConfig_WeekendDays(t *testing.T) {
+	tomlData := `
+[default]
+weekend_days = ["friday", "saturday"]
+
+[users]
+[users.user1]
+daily_limit = "3h"
+[users.user2]
+weekend_days = ["sunday"]
+`
+	cfg, err := LoadConfigFromBytes([]byte(tomlData))
+	assert.NoError(t, err)
+
+	// user1 inherits default weekend days, user2 keeps its own
+	assert.Equal(t, []string{"friday", "saturday"}, cfg.Users["user1"].WeekendDays)
+	assert.Equal(t, []string{"sunday"}, cfg.Users["user2"].WeekendDays)
+}
+
+func TestLoadConfig_InvalidWeekendDays(t *testing.T) {
+	tomlData := `
+[default]
+weekend_days = ["saturady"]
+`
+	_, err := LoadConfigFromBytes([]byte(tomlData))
+	assert.Error(t, err)
+
+	tomlData = `
+[users.user1]
+weekend_days = ["sat"]
+`
+	_, err = LoadConfigFromBytes([]byte(tomlData))
+	assert.Error(t, err)
+}

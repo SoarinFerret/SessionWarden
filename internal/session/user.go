@@ -29,7 +29,9 @@ func (u *User) EndSession(end time.Time, sessionID string) error {
 func (u *User) EndAllSegments(reason string) {
 	now := time.Now()
 	for i := range u.Sessions {
-		u.Sessions[i].EndSegment(now, reason)
+		if u.Sessions[i].IsActive() {
+			u.Sessions[i].EndSegment(now, reason)
+		}
 	}
 }
 
@@ -51,19 +53,33 @@ func (u *User) GetActiveSession() *SessionRecord {
 	return nil
 }
 
+// GetSessionByID returns the session with the given ID. logind reuses
+// session IDs across reboots, so multiple records can share an ID:
+// prefer the active one, otherwise return the most recent match.
 func (u *User) GetSessionByID(sessionID string) (*SessionRecord, error) {
-	for i := range u.Sessions {
+	var newest *SessionRecord
+	for i := len(u.Sessions) - 1; i >= 0; i-- {
 		if u.Sessions[i].SessionId == sessionID {
-			return &u.Sessions[i], nil
+			if u.Sessions[i].IsActive() {
+				return &u.Sessions[i], nil
+			}
+			if newest == nil {
+				newest = &u.Sessions[i]
+			}
 		}
+	}
+	if newest != nil {
+		return newest, nil
 	}
 	return nil, fmt.Errorf("session ID %s not found", sessionID)
 }
 
+// IsSessionActive reports whether any session with the given ID is active
+// (IDs can repeat across reboots, so ended records with the same ID are ignored)
 func (u *User) IsSessionActive(sessionID string) bool {
 	for _, session := range u.Sessions {
-		if session.SessionId == sessionID {
-			return session.IsActive()
+		if session.SessionId == sessionID && session.IsActive() {
+			return true
 		}
 	}
 	return false

@@ -469,3 +469,61 @@ func TestCheckSendNotification_NegativeTimeRemaining(t *testing.T) {
 		t.Errorf("expected false when time remaining is negative, got true")
 	}
 }
+
+func TestPermitLogin_FridayUsesWeekdayHoursByDefault(t *testing.T) {
+	// Regression: PermitLogin used to treat Friday as a weekend day while
+	// GetTimeRemaining did not, so enforcement and countdown disagreed
+	st := state.State{Users: map[string]session.User{"alice": {}}}
+	cfg := exampleConfig() // allowed_hours 09:00-17:00, weekend_hours 10:00-14:00
+
+	// Friday at 15:00 - within weekday hours, outside weekend hours
+	now := time.Date(2024, 6, 7, 15, 0, 0, 0, time.UTC)
+	if !PermitLogin("alice", st, cfg, now) {
+		t.Errorf("expected PermitLogin to allow login on Friday during weekday hours")
+	}
+}
+
+func TestWeekendDaysConfigRespected(t *testing.T) {
+	tomlData := `
+[default]
+enabled = true
+
+[users.alice]
+daily_limit = "8h"
+allowed_hours = "09:00-17:00"
+weekend_hours = "10:00-14:00"
+weekend_days = ["friday", "saturday"]
+enabled = true
+`
+	cfg, err := config.LoadConfigFromBytes([]byte(tomlData))
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+	st := state.State{Users: map[string]session.User{"alice": {}}}
+
+	// Friday at 15:00 - configured as weekend, outside weekend hours, deny
+	friday := time.Date(2024, 6, 7, 15, 0, 0, 0, time.UTC)
+	if PermitLogin("alice", st, cfg, friday) {
+		t.Errorf("expected PermitLogin to deny login on configured weekend day outside weekend hours")
+	}
+
+	// Friday at 11:00 - within weekend hours, permit
+	friday = time.Date(2024, 6, 7, 11, 0, 0, 0, time.UTC)
+	if !PermitLogin("alice", st, cfg, friday) {
+		t.Errorf("expected PermitLogin to allow login on configured weekend day within weekend hours")
+	}
+
+	// Sunday at 15:00 - not a configured weekend day, weekday hours apply, permit
+	sunday := time.Date(2024, 6, 9, 15, 0, 0, 0, time.UTC)
+	if !PermitLogin("alice", st, cfg, sunday) {
+		t.Errorf("expected PermitLogin to allow login on Sunday within weekday hours when weekend_days excludes it")
+	}
+
+	// GetTimeRemaining must use the same weekend definition:
+	// Friday at 11:00, weekend window ends 14:00 -> 3h remaining
+	friday = time.Date(2024, 6, 7, 11, 0, 0, 0, time.UTC)
+	remaining := GetTimeRemaining("alice", st, cfg, friday)
+	if remaining != 3*60*60 {
+		t.Errorf("GetTimeRemaining = %d, want %d (weekend window on configured weekend day)", remaining, 3*60*60)
+	}
+}

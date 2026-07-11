@@ -124,6 +124,8 @@ Then in your configuration.nix:
        daily_limit = "4h"
        allowed_hours = "08:00-22:00"
        weekend_hours = "08:00-22:00"
+       # days that use weekend_hours; defaults to saturday/sunday
+       weekend_days = ["saturday", "sunday"]
        notify_before = ["15m", "5m"]
        lock_screen = true
        enabled = true

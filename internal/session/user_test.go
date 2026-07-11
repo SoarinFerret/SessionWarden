@@ -75,6 +75,64 @@ func TestUser_EndAllSegmentsAndStartNewSegments(t *testing.T) {
 	}
 }
 
+func TestUser_EndAllSegmentsSkipsEndedSessions(t *testing.T) {
+	u := &User{}
+	oldStart := time.Now().Add(-4 * time.Hour)
+	oldEnd := oldStart.Add(1 * time.Hour)
+	u.AddSession(oldStart, "ended")
+	u.EndSession(oldEnd, "ended")
+
+	u.AddSession(time.Now().Add(-30*time.Minute), "active")
+
+	u.EndAllSegments("system sleep")
+
+	ended, _ := u.GetSessionByID("ended")
+	if !ended.Segments[0].EndTime.Equal(oldEnd) {
+		t.Errorf("ended session segment EndTime = %v, want %v (should not be touched)", ended.Segments[0].EndTime, oldEnd)
+	}
+	active, _ := u.GetSessionByID("active")
+	if active.Segments[0].EndTime.IsZero() {
+		t.Errorf("active session segment should be ended by EndAllSegments")
+	}
+}
+
+func TestUser_DuplicateSessionIDsPreferActive(t *testing.T) {
+	// logind reuses session IDs across reboots, so a user can have an
+	// ended and an active session with the same ID on the same day
+	u := &User{}
+	oldStart := time.Now().Add(-6 * time.Hour)
+	u.AddSession(oldStart, "dup")
+	u.EndSession(oldStart.Add(1*time.Hour), "dup")
+
+	newStart := time.Now().Add(-1 * time.Hour)
+	u.AddSession(newStart, "dup")
+
+	if !u.IsSessionActive("dup") {
+		t.Errorf("IsSessionActive = false, want true when a newer session with the same ID is active")
+	}
+
+	s, err := u.GetSessionByID("dup")
+	if err != nil {
+		t.Fatalf("GetSessionByID returned error: %v", err)
+	}
+	if !s.StartTime.Equal(newStart) {
+		t.Errorf("GetSessionByID returned old session (start %v), want active session (start %v)", s.StartTime, newStart)
+	}
+
+	// Once both are ended, the newest record should be returned
+	u.EndSession(time.Now(), "dup")
+	if u.IsSessionActive("dup") {
+		t.Errorf("IsSessionActive = true, want false when all sessions with the ID are ended")
+	}
+	s, err = u.GetSessionByID("dup")
+	if err != nil {
+		t.Fatalf("GetSessionByID returned error: %v", err)
+	}
+	if !s.StartTime.Equal(newStart) {
+		t.Errorf("GetSessionByID returned old session (start %v), want newest session (start %v)", s.StartTime, newStart)
+	}
+}
+
 func TestUser_DontStartNewSegmentForActiveSegment(t *testing.T) {
 	u := &User{}
 	start := time.Now().Add(-1 * time.Hour)
